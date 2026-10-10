@@ -22,6 +22,7 @@ import History from './src/screens/History';
 import Reports from './src/screens/Reports';
 import SubscriptionScreen from './src/screens/Subscription';
 import Account from './src/screens/Account';
+import MapScreen from './src/screens/MapScreen';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 const TABS: { key: TabName; label: string; icon: IconName; activeIcon: IconName }[] = [
@@ -50,6 +51,7 @@ function ScreenRouter() {
     case 'Reports': return <Reports />;
     case 'SubscriptionScreen': return <SubscriptionScreen />;
     case 'Account': return <Account />;
+    case 'MapScreen': return <MapScreen />;
     default: return <Dashboard />;
   }
 }

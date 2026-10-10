@@ -164,6 +164,8 @@ export default function Dashboard() {
           />
         ) : null}
 
+        <PButton title="Live map" icon="map-outline" variant="secondary" onPress={() => navigate('MapScreen')} chevron style={{ marginBottom: 16 }} />
+
         {/* Stats */}
         <View style={{ flexDirection: 'row', gap: 12, marginBottom: 16 }}>
           <StatCard
