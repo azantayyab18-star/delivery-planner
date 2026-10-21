@@ -56,7 +56,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Delivery Rider uses the camera to scan barcodes on packages."
+          "cameraPermission": "Delivery Rider uses the camera to scan text on packages."
         }
       ],
       "expo-font",
