@@ -1,11 +1,10 @@
 """Smaller rider-facing routers: config, files, routes, rider dashboard, reports, subscriptions."""
 from __future__ import annotations
 
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Request
 from pydantic import Field, StringConstraints, model_validator
-from starlette.responses import FileResponse
 
 from ..auth import authenticate
 from ..errors import not_found
@@ -42,9 +41,7 @@ async def get_file(request: Request, kind: str, name: str):
     disposition = q.get("d")
     if not verify_file_signature(key, q.get("exp"), disposition, q.get("sig")):
         raise not_found("File")
-    full = storage.resolve_key(key)
-    info = storage.stat(key)
-    return FileResponse(full, media_type=storage.content_type_for(key), stat_result=info, headers={
+    return await storage.file_response(key, disposition, name, {
         "Content-Disposition": f'{disposition}; filename="{name}"',
         "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff", "Cross-Origin-Resource-Policy": "cross-origin",
     })
@@ -59,12 +56,16 @@ class Point(Schema):
     longitude: Annotated[float, Field(ge=-180, le=180)]
 
 
+# A whole working day (the 2,000-stops-a-day goal). Planning runs in the worker, so a big list never blocks the API.
+MAX_BUILD_STOPS = 2000
+
+
 class BuildBody(Schema):
-    preference: Optional[Preference] = None
-    origin: Optional[Point] = None
-    deliveryIds: Optional[Annotated[list[ObjectId], Field(max_length=300)]] = None
-    date: Optional[DateKey] = None
-    name: Optional[Annotated[str, StringConstraints(strip_whitespace=True, max_length=80)]] = None
+    preference: Preference | None = None
+    origin: Point | None = None
+    deliveryIds: Annotated[list[ObjectId], Field(max_length=MAX_BUILD_STOPS)] | None = None
+    date: DateKey | None = None
+    name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=80)] | None = None
 
 
 @routes_router.post("/build")
@@ -77,7 +78,7 @@ async def build_route(request: Request):
 
 class DayQuery(Schema):
     # The rider's local date, so "today" follows their clock rather than the server's (UTC).
-    date: Optional[DateKey] = None
+    date: DateKey | None = None
 
 
 @routes_router.get("/current")
@@ -98,7 +99,7 @@ async def upcoming_routes(request: Request):
 class RangeQuery(Schema):
     # The rider's local dates (YYYY-MM-DD). Without `to`, every route from `from` onwards.
     date_from: DateKey = Field(alias="from")
-    to: Optional[DateKey] = None
+    to: DateKey | None = None
 
     @model_validator(mode="after")
     def _ordered(self):
@@ -117,7 +118,7 @@ async def routes_by_date(request: Request):
 
 class DateBody(Schema):
     date: DateKey
-    origin: Optional[Point] = None
+    origin: Point | None = None
 
 
 @routes_router.get("/leftover")
@@ -150,7 +151,7 @@ async def retry_geocoding(request: Request):
 
 
 class OptimizeBody(Schema):
-    origin: Optional[Point] = None
+    origin: Point | None = None
 
 
 @routes_router.post("/{id}/optimize")
@@ -181,7 +182,7 @@ rider_router = APIRouter(prefix="/rider")
 
 
 class DateQuery(Schema):
-    date: Optional[DateKey] = None
+    date: DateKey | None = None
 
 
 @rider_router.get("/dashboard")
@@ -223,7 +224,7 @@ reports_router = APIRouter(prefix="/reports")
 
 
 class GenerateBody(Schema):
-    date: Optional[DateKey] = None
+    date: DateKey | None = None
 
 
 @reports_router.post("/generate")
@@ -284,8 +285,8 @@ async def store_config(request: Request):
 class PurchaseBody(Schema):
     store: Literal["apple", "google", "revenuecat", "mock"]
     # apple: the transaction's signed JWS · google: the purchase token · revenuecat, mock: not used
-    receipt: Optional[Annotated[str, StringConstraints(strip_whitespace=True, min_length=10, max_length=20_000)]] = None
-    productId: Optional[Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]] = None
+    receipt: Annotated[str, StringConstraints(strip_whitespace=True, min_length=10, max_length=20000)] | None = None
+    productId: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)] | None = None
     # Mock store only: start with a free trial, as a store free-trial offer would. Real stores report trials themselves.
     trial: bool = False
 

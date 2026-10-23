@@ -5,9 +5,13 @@ import { KeyboardAwareScrollView, useRevealOnFocus } from '../components/Keyboar
 import * as ImagePicker from 'expo-image-picker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '../lib/useFocusEffect';
-import { get, post, del, postFile, fileUrl, ApiRequestError } from '../lib/api';
+import { get, del, fileUrl, isOnline, ApiRequestError } from '../lib/api';
+import { queryClient } from '../lib/query';
 import type { Delivery, FailureReason, Route } from '../lib/types';
-import { FAILURE_LABELS, stopCardText, stopLabel, timeOnly, todayKey } from '../lib/format';
+import { applyStopEvent, earlierOpenStop, earlierStopOf, type V2EventResult } from '../lib/v2';
+import { submitProof, submitStopEvent } from '../lib/outbox';
+import { prepareProofPhoto } from '../lib/photo';
+import { FAILURE_LABELS, stopCardText, timeOnly } from '../lib/format';
 import { Screen } from '../components/Kit';
 import { type PillTone } from '../components/Premium';
 import { LightButton, LightError } from '../components/LightKit';
@@ -28,6 +32,17 @@ export const STATUS: Record<Delivery['status'], { label: string; tone: PillTone 
  * with Delivered / Failed. The server only takes a result (or a photo) once the stop is marked arrived, so a pending
  * stop is marked arrived first, then the action runs.
  */
+/** The stop as the rider just changed it, while the change waits on the phone to be sent (offline). */
+function savedOnPhone(d: Delivery, status: Delivery['status'], reason?: FailureReason): Delivery {
+  const at = new Date().toISOString();
+  return {
+    ...d, status, arrivedAt: d.arrivedAt ?? at,
+    deliveredAt: status === 'delivered' ? at : d.deliveredAt,
+    failedAt: status === 'failed' ? at : d.failedAt,
+    failure: status === 'failed' ? { reason: reason ?? 'other', note: null } : d.failure,
+  };
+}
+
 export default function DeliveryDetail({ id, onDone, initialStep }: { id: string; onDone: () => void; initialStep?: 'proof' | 'fail' }) {
   const { goBack, resetTo } = useNav();
   // Opened straight on Proof of delivery or Failed delivery (from Live Navigation): closing that step goes back there.
@@ -52,6 +67,9 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  // How the change reads on the sync list (Home's sync status) while it waits to be sent.
+  const label = (what: string) => `${what} · ${delivery ? stopCardText(delivery).title : 'stop'}`;
+
   const run = async (kind: NonNullable<typeof busy>, fn: () => Promise<void>) => {
     setBusy(kind);
     setError('');
@@ -59,10 +77,11 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
     finally { setBusy(null); }
   };
 
-  // Delivered, Failed and a photo all need the stop marked arrived first.
+  // A photo needs the stop marked arrived first (Delivered and Failed record the arrival themselves).
   const ensureArrived = async () => {
     if (delivery?.status !== 'pending') return;
-    setDelivery((await post<Delivery>(`/deliveries/${id}/arrive`)).data);
+    const sent = await submitStopEvent(id, { type: 'arrive' }, label('Arrived'));
+    setDelivery((d) => (d ? (sent.status === 'sent' ? applyStopEvent(d, sent.result.stop) : savedOnPhone(d, 'in_progress')) : d));
   };
 
   const capturePhoto = async (fromCamera: boolean) => {
@@ -75,18 +94,19 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
     const asset = result.assets[0];
     await run('photo', async () => {
       await ensureArrived();
-      setDelivery((await postFile<Delivery>(`/deliveries/${id}/proof`, asset.uri, 'photo', asset.mimeType || 'image/jpeg')).data);
+      // Scaled down first (P3.10): a full-size camera photo is several MB on a mobile connection.
+      const photo = await prepareProofPhoto(asset.uri, asset.width, asset.height);
+      // Kept on the phone until it is uploaded (P4.3): offline it goes up later by itself.
+      const sent = await submitProof(id, photo.uri, label('Photo'));
+      if (sent.status === 'sent') setDelivery((d) => (d ? { ...d, proof: sent.proof } : d));
+      else setError('Photo saved on the phone. It uploads when you are back online.');
     });
   };
 
-  // After the last open stop the server completes the route: then Route complete, else back as before.
-  const finish = async () => {
-    const routeId = delivery?.routeId;
-    if (routeId) {
-      try {
-        if ((await get<Route>(`/routes/${routeId}`)).data.status === 'completed') { resetTo('RouteComplete', { routeId }); return; }
-      } catch { /* just go back */ }
-    }
+  // After the last open stop the server completes the route (the event's answer says so): then Route complete, else back.
+  // Saved on the phone only (offline): back to the route, which already shows it; it is sent later by itself.
+  const finish = (result: V2EventResult | null) => {
+    if (result?.route?.status === 'completed') { resetTo('RouteComplete', { routeId: result.route.id }); return; }
     onDone();
   };
 
@@ -96,44 +116,44 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
     { text: 'Cancel', style: 'cancel' },
   ]);
 
+  const askToSkip = (earlier: { trackingId: string; stopOrder: number }) => Alert.alert(
+    'Earlier delivery still open',
+    `Delivery no. ${earlier.stopOrder}${earlier.trackingId ? ` (${earlier.trackingId})` : ''} is not finished. Continue with delivery no. ${delivery?.stopOrder ?? ''}?`,
+    [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Continue anyway', style: 'destructive', onPress: () => confirmDelivery(true) },
+    ],
+  );
+
+  // One request: the server records the arrival if needed and refuses (409) while an earlier stop is still open.
+  // Offline that answer cannot come, so the saved route is checked here instead (ISSUE-23).
   const confirmDelivery = (allowSkip = false) => run('deliver', async () => {
-    await ensureArrived();
     const note = deliverNote.trim();
-    setDelivery((await post<Delivery>(`/deliveries/${id}/deliver`, { ...(allowSkip ? { allowSkip: true } : {}), ...(note ? { note } : {}) })).data);
-    await finish();
+    if (!allowSkip && !isOnline()) {
+      const saved = queryClient.getQueriesData<Route | null>({ queryKey: ['route'] }).map(([, r]) => r)
+        .find((r) => r?.stops.some((s) => s.delivery.id === id));
+      const earlier = saved ? earlierOpenStop(saved, id) : null;
+      if (earlier) { askToSkip(earlier); return; }
+    }
+    try {
+      const sent = await submitStopEvent(id, { type: 'deliver', ...(allowSkip ? { allowSkip: true } : {}), ...(note ? { note } : {}) }, label('Delivered'));
+      setDelivery((d) => (d ? (sent.status === 'sent' ? applyStopEvent({ ...d, note: note || d.note }, sent.result.stop) : savedOnPhone(d, 'delivered')) : d));
+      finish(sent.status === 'sent' ? sent.result : null);
+    } catch (err) {
+      const earlier = err instanceof ApiRequestError && err.code === 'EARLIER_STOPS_REMAIN' ? earlierStopOf(err.details) : null;
+      if (!earlier) throw err;
+      askToSkip(earlier);
+    }
   });
 
-  const deliver = async () => {
-    if (!delivery?.routeId) { confirmDelivery(); return; }
-    try {
-      const route = (await get<Route | null>('/routes/current', { date: todayKey() })).data;
-      const current = route?.stops.find((stop) => stop.delivery.id === delivery.id);
-      const earlier = current && route
-        ? route.stops.find((stop) => stop.order < current.order && (stop.delivery.status === 'pending' || stop.delivery.status === 'in_progress'))
-        : null;
-      if (earlier && current) {
-        Alert.alert(
-          'Earlier delivery still open',
-          `Delivery no. ${earlier.order} (${stopLabel(earlier.delivery)}) is not finished. Continue with delivery no. ${current.order}?`,
-          [
-            { text: 'Cancel', style: 'cancel' },
-            { text: 'Continue anyway', style: 'destructive', onPress: () => confirmDelivery(true) },
-          ],
-        );
-        return;
-      }
-      confirmDelivery();
-    } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : 'Could not verify the route order');
-    }
-  };
+  const deliver = () => confirmDelivery();
 
   const submitFail = () => run('fail', async () => {
     if (!reason) { setError('Choose a reason'); return; }
-    await ensureArrived();
-    await post(`/deliveries/${id}/fail`, { reason, note: failNote.trim() || undefined });
+    const sent = await submitStopEvent(id, { type: 'fail', reason, ...(failNote.trim() ? { note: failNote.trim() } : {}) }, label('Failed'));
     setShowFail(false);
-    await finish();
+    if (sent.status === 'queued') setDelivery((d) => (d ? savedOnPhone(d, 'failed', reason) : d));
+    finish(sent.status === 'sent' ? sent.result : null);
   });
 
   const removeDelivery = () => {

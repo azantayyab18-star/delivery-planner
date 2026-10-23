@@ -8,13 +8,16 @@ import { Screen } from '../components/Kit';
 import { type McName } from '../components/Premium';
 import { LightButton, LightError } from '../components/LightKit';
 import GoogleRouteMap, { type Coordinates, type MapStop } from '../components/GoogleRouteMap';
-import { get, ApiRequestError } from '../lib/api';
+import { post, ApiRequestError } from '../lib/api';
+import { decodePolyline } from '../lib/polyline';
 import { openDirections } from '../lib/deliveryActions';
 import { formatMinutes, stopCardText, stopLabel, todayKey } from '../lib/format';
 import { TEST_LOCATION } from '../lib/location';
 import type { Route } from '../lib/types';
+import { useIsFocused } from '@react-navigation/native';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
+import { fetchCurrentRoute } from '../lib/v2api';
 import { light as c } from '../lib/theme';
 
 type Step = { distance: number; duration: number; name: string; maneuver: { type: string; modifier?: string } };
@@ -68,8 +71,10 @@ function useLivePosition() {
   const [anchor, setAnchor] = useState<Coordinates | null>(TEST_LOCATION);
   const [heading, setHeading] = useState<number | null>(null);
   const [denied, setDenied] = useState(false);
+  // Watched only while navigation is on screen (it stays mounted under Stop details); the last fix is kept.
+  const focused = useIsFocused();
   useEffect(() => {
-    if (TEST_LOCATION) return;
+    if (TEST_LOCATION || !focused) return;
     let mounted = true;
     let sub: Location.LocationSubscription | null = null;
     (async () => {
@@ -86,7 +91,7 @@ function useLivePosition() {
       if (mounted) sub = next; else next.remove();
     })().catch(() => { /* the map still shows the stops without GPS */ });
     return () => { mounted = false; sub?.remove(); };
-  }, []);
+  }, [focused]);
   return { position, anchor, heading, denied };
 }
 
@@ -103,7 +108,7 @@ export default function LiveNavigation() {
 
   const load = useCallback(async () => {
     try {
-      setRoute((await get<Route | null>('/routes/current', { date: todayKey() })).data);
+      setRoute(await fetchCurrentRoute(todayKey()));
       setError('');
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : 'Could not load your route');
@@ -121,12 +126,11 @@ export default function LiveNavigation() {
   useEffect(() => {
     if (!anchor || !target) return;
     const id = ++request.current;
-    fetch(`https://router.project-osrm.org/route/v1/driving/${anchor.longitude},${anchor.latitude};${target.longitude},${target.latitude}?overview=full&geometries=geojson&steps=true`)
-      .then((res) => { if (!res.ok) throw new Error('route'); return res.json(); })
-      .then((data: { code: string; routes?: { distance: number; duration: number; geometry: { coordinates: [number, number][] }; legs: { steps: Step[] }[] }[] }) => {
-        const best = data.routes?.[0];
-        if (data.code !== 'Ok' || !best || id !== request.current) return;
-        setGuidance({ key, path: best.geometry.coordinates.map(([longitude, latitude]) => ({ latitude, longitude })), km: best.distance / 1000, min: best.duration / 60, steps: best.legs[0]?.steps || [] });
+    // Re-routed by our API on our own OSRM (P6b.5): the app never calls an OSRM server itself.
+    post<{ path: string | null; distanceKm: number | null; durationMin: number | null; steps: Step[] }>('/v2/navigation/route', { start: anchor, target })
+      .then(({ data }) => {
+        if (!data.path || id !== request.current) return;
+        setGuidance({ key, path: decodePolyline(data.path), km: data.distanceKm ?? 0, min: data.durationMin ?? 0, steps: data.steps });
       })
       .catch(() => { /* a straight dashed line and the straight-line distance stay on screen */ });
     // key captures everything this request depends on.
@@ -180,7 +184,7 @@ export default function LiveNavigation() {
     <Screen style={{ backgroundColor: c.background }}>
       <StatusBar style="dark" />
       <View style={{ flex: 1 }}>
-        <GoogleRouteMap light stops={mapStops} position={position} path={live?.path ?? []} order={target ? [target] : []} follow={!!position} heading={heading} style={{ height: '100%' }} />
+        <GoogleRouteMap light stops={mapStops} maxStops={25} position={position} path={live?.path ?? []} order={target ? [target] : []} follow={!!position} heading={heading} style={{ height: '100%' }} />
 
         <View style={[s.topRow, { top: insets.top > 0 ? 12 : 16 }]}>
           <View style={s.pill}><Text style={s.pillText}>Stop {current.order} of {route.stops.length}</Text></View>

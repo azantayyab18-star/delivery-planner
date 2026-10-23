@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, Vibration, View, type ScrollView } from 'react-native';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
+import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { KeyboardAwareScrollView, RevealingTextInput } from '../components/KeyboardAware';
 import { Screen } from '../components/Kit';
@@ -12,13 +13,15 @@ import ConfirmStop from '../components/scan/ConfirmStop';
 import PinSheet, { type PinResult } from '../components/PinSheet';
 import ImportSheet from '../components/ImportSheet';
 import StopLines from '../components/StopLines';
-import { get, post, del, ApiRequestError } from '../lib/api';
+import { get, del, ApiRequestError } from '../lib/api';
 import { getRouteOrigin } from '../lib/location';
 import { checkAddress, createStop, DuplicateStopError } from '../lib/stops';
+import { forgetPendingStop, outboxFor, pendingStops } from '../lib/outbox';
 import { findDuplicate, type Duplicate } from '../lib/duplicates';
 import { NATIVE_BUILD_HINT, loadVoicePanel } from '../lib/optionalNative';
 import { dayLabel, isOnlyEircode, normalizeEircodes } from '../lib/format';
-import type { AddressSuggestion, Delivery } from '../lib/types';
+import type { Delivery } from '../lib/types';
+import { newPlaceSession, pickPlace, searchPlaces, type PlaceSuggestion } from '../lib/places';
 import { useAuth } from '../lib/auth';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
@@ -28,7 +31,9 @@ type Point = { latitude: number; longitude: number };
 type Sheet = 'scan' | 'barcode' | 'pin' | 'import' | null;
 
 const VoicePanel = loadVoicePanel();
-const SUGGEST_DELAY_MS = 350;
+// Suggestions wait for a pause in typing and a few characters: every request is a billed lookup (P3.8).
+const SUGGEST_DELAY_MS = 500;
+const SUGGEST_MIN_CHARS = 4;
 
 // Step 2 of Add route: add stops as fast as possible. Each stop is saved straight away (for the route's day), so nothing is lost.
 // With `routeId` (Edit stops on a planned route), that route's stops are on the list too, and Review plans it again.
@@ -43,8 +48,10 @@ export default function AddStops({ name, date, routeId }: { name: string; date: 
   const [address, setAddress] = useState('');
   const [parcel, setParcel] = useState('');
   // The exact location the rider chose (a suggestion or a pin) for the current address text.
-  const [picked, setPicked] = useState<{ label: string; approximate?: boolean } & Point | null>(null);
-  const [suggestions, setSuggestions] = useState<AddressSuggestion[]>([]);
+  const [picked, setPicked] = useState<{ label: string; approximate?: boolean; normalized?: string | null } & Point | null>(null);
+  const [suggestions, setSuggestions] = useState<PlaceSuggestion[]>([]);
+  // One Google billing session per address typed (P5.1): renewed after a pick or when the field is cleared.
+  const placeSession = useRef(newPlaceSession());
   const [searching, setSearching] = useState(false);
   // Set when Add found no exact match: the rider picks a suggestion, pins it, or adds it anyway.
   const [unsure, setUnsure] = useState(false);
@@ -64,13 +71,14 @@ export default function AddStops({ name, date, routeId }: { name: string; date: 
   // The rider chose "Add anyway" for the address now in the field (a second parcel for the same door).
   const [allowDuplicate, setAllowDuplicate] = useState(false);
   const [highlight, setHighlight] = useState<string | null>(null);
-  const scrollRef = useRef<ScrollView>(null);
-  const stopY = useRef(new Map<string, number>());
+  const scrollRef = useRef<FlashListRef<Delivery>>(null);
 
   const area = user?.serviceArea ? { latitude: user.serviceArea.latitude, longitude: user.serviceArea.longitude } : null;
 
   // Stops already added but not on a route yet (e.g. the rider left this screen earlier) belong to this route too.
+  // Stops added offline and not sent yet (P4.1) are listed with them, flagged pending_sync.
   const load = useCallback(async () => {
+    let saved: Delivery[] | null = null;
     try {
       const all: Delivery[] = [];
       for (let page = 1; page <= 3; page++) {
@@ -78,30 +86,53 @@ export default function AddStops({ name, date, routeId }: { name: string; date: 
         all.push(...res.data);
         if (!res.meta || page >= res.meta.pages) break;
       }
-      setStops(all.filter((d) => !d.routeId || (routeId != null && d.routeId === routeId)).reverse());
+      saved = all.filter((d) => !d.routeId || (routeId != null && d.routeId === routeId)).reverse();
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : 'Could not load your stops');
+      // Offline: the list on screen stays; only an answer from the server is an error worth showing.
+      if (!(err instanceof TypeError)) setError(err instanceof ApiRequestError ? err.message : 'Could not load your stops');
     } finally {
+      const waiting = await pendingStops(date).catch(() => []);
+      setStops((list) => {
+        const base = saved ?? list.filter((d) => !d.flags.includes('pending_sync'));
+        const ids = new Set(base.map((d) => d.id));
+        return [...base, ...waiting.filter((d) => !ids.has(d.id))];
+      });
       setLoading(false);
     }
   }, [date, routeId]);
+  // Reload when stops waiting on the phone have been sent (they get their server ids).
+  const userId = user?.id;
+  useEffect(() => {
+    if (!userId) return;
+    const outbox = outboxFor(userId);
+    let waiting = -1;
+    return outbox.subscribe(() => {
+      void outbox.summary().then((now) => {
+        if (!now.sending && waiting >= 0 && now.waiting < waiting) void load();
+        if (!now.sending) waiting = now.waiting;
+      });
+    });
+  }, [userId, load]);
   useFocusEffect(useCallback(() => { void load(); void getRouteOrigin().then(setOrigin); }, [load]));
 
   // Suggestions follow the typing, a moment after the rider pauses. They are hidden once a location is chosen.
   const query = address.trim();
-  const wantSuggestions = query.length >= 3 && !(picked && picked.label === address);
+  const wantSuggestions = query.length >= SUGGEST_MIN_CHARS && !(picked && picked.label === address);
   useEffect(() => {
     if (!wantSuggestions) return;
     const id = ++searchId.current;
+    // A newer search cancels this one, also when it is already on its way.
+    const cancel = new AbortController();
     const timer = setTimeout(() => {
       setSearching(true);
       const near = origin || area;
-      post<AddressSuggestion[]>('/deliveries/geocode-suggest', { query, ...(near || {}) })
-        .then((res) => { if (id === searchId.current) setSuggestions(res.data); })
+      // Places Autocomplete only (no Geocoding per keystroke, P5.2); the point is asked for once, on pick.
+      searchPlaces(query, placeSession.current, near, cancel.signal)
+        .then((found) => { if (id === searchId.current) setSuggestions(found); })
         .catch(() => { if (id === searchId.current) setSuggestions([]); })
         .finally(() => { if (id === searchId.current) setSearching(false); });
     }, SUGGEST_DELAY_MS);
-    return () => clearTimeout(timer);
+    return () => { clearTimeout(timer); cancel.abort(); };
     // area is derived from the user; origin changes at most once.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, wantSuggestions, origin]);
@@ -115,15 +146,26 @@ export default function AddStops({ name, date, routeId }: { name: string; date: 
     if (picked && text !== picked.label) setPicked(null);
   };
 
-  const choose = (sug: AddressSuggestion) => {
+  const choose = async (sug: PlaceSuggestion) => {
     setAddress(sug.label);
-    setPicked({ label: sug.label, latitude: sug.latitude, longitude: sug.longitude, approximate: sug.approximate });
     setSuggestions([]);
     setUnsure(false);
+    try {
+      setSearching(true);
+      const point = await pickPlace(sug, placeSession.current);
+      if (!point) { setError('Could not find that address on the map. Try another suggestion or drop a pin.'); return; }
+      setPicked({ label: sug.label, latitude: point.latitude, longitude: point.longitude, approximate: point.approximate, normalized: point.normalized });
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : 'Could not look that address up. Check your connection and try again.');
+    } finally {
+      setSearching(false);
+      placeSession.current = newPlaceSession();
+    }
   };
 
   const reset = (focus = true) => {
     setAddress(''); setParcel(''); setPicked(null); setSuggestions([]); setUnsure(false); setError(''); setAllowDuplicate(false);
+    placeSession.current = newPlaceSession();
     if (focus) setTimeout(() => addressRef.current?.focus(), 50);
   };
 
@@ -145,7 +187,7 @@ export default function AddStops({ name, date, routeId }: { name: string; date: 
     setAdding(true);
     setError('');
     try {
-      if (picked && picked.label === address) { await save(raw, picked, { precise: !picked.approximate, duplicateOk }); return; }
+      if (picked && picked.label === address) { await save(raw, picked, { normalized: picked.normalized, precise: !picked.approximate, duplicateOk }); return; }
       if (anyway) { await save(raw, null, { duplicateOk }); return; }
       const near = origin || area;
       const check = await checkAddress(raw, near);
@@ -167,16 +209,21 @@ export default function AddStops({ name, date, routeId }: { name: string; date: 
     }
   };
 
-  const remove = (stop: Delivery) => {
+  const remove = useCallback((stop: Delivery) => {
     Alert.alert('Remove this stop?', stop.address.raw, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => {
+        // Never sent: it only has to leave the phone's outbox.
+        if (stop.flags.includes('pending_sync')) {
+          void forgetPendingStop(stop.id).then(() => setStops((list) => list.filter((d) => d.id !== stop.id)));
+          return;
+        }
         del(`/deliveries/${stop.id}`)
           .then(() => setStops((list) => list.filter((d) => d.id !== stop.id)))
           .catch((err) => setError(err instanceof ApiRequestError ? err.message : 'Could not remove this stop'));
       } },
     ]);
-  };
+  }, []);
 
   const onPin = (pin: PinResult) => {
     setSheet(null);
@@ -210,19 +257,31 @@ export default function AddStops({ name, date, routeId }: { name: string; date: 
 
   const viewStop = (stop: Delivery) => {
     setDuplicate(null);
-    const y = stopY.current.get(stop.id);
-    if (y != null) scrollRef.current?.scrollTo({ y: Math.max(0, y - 120), animated: true });
+    const index = stops.findIndex((d) => d.id === stop.id);
+    if (index >= 0) void scrollRef.current?.scrollToIndex({ index, animated: true, viewOffset: 120 });
     setHighlight(stop.id);
     setTimeout(() => setHighlight((id) => (id === stop.id ? null : id)), 2500);
   };
 
   const review = () => navigate('RoutePreview', { name, date, ids: stops.map((d) => d.id) });
+  // Planning needs every stop on the server: stops still on the phone hold Review until they are sent.
+  const unsent = stops.filter((d) => d.flags.includes('pending_sync')).length;
 
   const located = !!picked && picked.label === address;
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <KeyboardAwareScrollView ref={scrollRef} contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
+      {/* Only the stops on screen are drawn; the form above them scrolls with the list and keeps clear of the keyboard. */}
+      <FlashList
+        ref={scrollRef}
+        data={stops}
+        keyExtractor={(stop) => stop.id}
+        extraData={highlight}
+        renderScrollComponent={KeyboardAwareScrollView}
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 }}
+        renderItem={({ item, index }) => <AddedStopRow stop={item} index={index} highlighted={highlight === item.id} onRemove={remove} />}
+        ListHeaderComponent={<>
         <View style={s.header}>
           <Pressable onPress={goBack} hitSlop={12} accessibilityLabel="Back">
             <Ionicons name="arrow-back" size={26} color={c.text} />
@@ -250,7 +309,7 @@ export default function AddStops({ name, date, routeId }: { name: string; date: 
         {shownSuggestions.length ? (
           <View style={s.suggestions}>
             {shownSuggestions.map((sug, i) => (
-              <Pressable key={`${sug.latitude},${sug.longitude}`} onPress={() => choose(sug)} style={({ pressed }) => [s.suggestion, i > 0 && s.divider, pressed && { backgroundColor: c.soft }]}>
+              <Pressable key={sug.placeId ?? `${sug.latitude},${sug.longitude}`} onPress={() => void choose(sug)} style={({ pressed }) => [s.suggestion, i > 0 && s.divider, pressed && { backgroundColor: c.soft }]}>
                 <MaterialCommunityIcons name={sug.approximate ? 'map-marker-question-outline' : 'map-marker-check-outline'} size={20} color={sug.approximate ? c.warning : c.success} />
                 <Text style={{ flex: 1, color: c.text, fontSize: 15 }} numberOfLines={2}>{sug.label}</Text>
               </Pressable>
@@ -310,19 +369,13 @@ export default function AddStops({ name, date, routeId }: { name: string; date: 
           {loading ? <ActivityIndicator size="small" color={c.textSecondary} style={{ marginLeft: 10 }} /> : null}
         </View>
         {!loading && !stops.length ? <Text style={{ color: c.textSecondary, fontSize: 15, marginTop: 8 }}>No stops yet. Your first stop will appear here.</Text> : null}
-        {stops.map((stop, i) => (
-          <View key={stop.id} style={[s.stop, i > 0 && s.stopDivider, highlight === stop.id && s.stopHighlight]} onLayout={(e) => stopY.current.set(stop.id, e.nativeEvent.layout.y)}>
-            <View style={s.badge}><Text style={{ color: c.text, fontWeight: '600', fontSize: 16 }}>{i + 1}</Text></View>
-            <View style={{ flex: 1, marginLeft: 14, marginRight: 8 }}>
-              <StopLines stop={stop} light />
-            </View>
-            <Pressable onPress={() => remove(stop)} hitSlop={10} accessibilityLabel="Remove stop"><Ionicons name="trash-outline" size={22} color={c.textSecondary} /></Pressable>
-          </View>
-        ))}
-      </KeyboardAwareScrollView>
+        </>}
+      />
 
       <View style={s.footer}>
-        <LightButton title={stops.length ? `Review ${stops.length} stop${stops.length === 1 ? '' : 's'}` : 'Add a stop to continue'} onPress={review} disabled={!stops.length} />
+        <LightButton
+          title={unsent ? `Saving ${unsent} stop${unsent === 1 ? '' : 's'}… (offline)` : stops.length ? `Review ${stops.length} stop${stops.length === 1 ? '' : 's'}` : 'Add a stop to continue'}
+          onPress={review} disabled={!stops.length || unsent > 0} />
       </View>
 
       <EircodeScanner visible={sheet === 'scan'} onEircode={onScanned} onTypeInstead={typeInstead} onClose={() => setSheet(null)} />
@@ -358,6 +411,21 @@ function SmallButton({ icon, label, onPress }: { icon: McName; label: string; on
     </Pressable>
   );
 }
+
+/** One added stop. Memoised: adding a stop or typing above does not redraw the rows already there. */
+const AddedStopRow = memo(function AddedStopRow({ stop, index, highlighted, onRemove }: {
+  stop: Delivery; index: number; highlighted: boolean; onRemove: (stop: Delivery) => void;
+}) {
+  return (
+    <View style={[s.stop, index > 0 && s.stopDivider, highlighted && s.stopHighlight]}>
+      <View style={s.badge}><Text style={{ color: c.text, fontWeight: '600', fontSize: 16 }}>{index + 1}</Text></View>
+      <View style={{ flex: 1, marginLeft: 14, marginRight: 8 }}>
+        <StopLines stop={stop} light />
+      </View>
+      <Pressable onPress={() => onRemove(stop)} hitSlop={10} accessibilityLabel="Remove stop"><Ionicons name="trash-outline" size={22} color={c.textSecondary} /></Pressable>
+    </View>
+  );
+});
 
 const s = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
