@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Modal, Platform, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
 import { CameraView, useCameraPermissions, type BarcodeType } from 'expo-camera';
 import { Ionicons } from '@expo/vector-icons';
-import { premium as c } from '../../lib/theme';
+import { premium as c, themed } from '../../lib/theme';
 import { PButton } from '../Premium';
 
 // Every symbology the camera supports: labels vary a lot between couriers.
@@ -74,11 +74,11 @@ function BarcodeBody({ onClose, onResult }: { onClose: () => void; onResult: (pa
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   center: { alignItems: 'center', justifyContent: 'center' },
   top: { position: 'absolute', left: 0, right: 0, top: 0, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingBottom: 12, backgroundColor: 'rgba(5,11,24,0.55)' },
   title: { flex: 1, color: '#fff', fontSize: 18, fontWeight: '800' },
   round: { width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(5,11,24,0.7)', alignItems: 'center', justifyContent: 'center' },
   frame: { position: 'absolute', top: '32%', height: '22%', left: '10%', right: '10%', borderWidth: 3, borderColor: '#FFFFFF', borderRadius: 14 },
   hint: { position: 'absolute', top: '26%', left: 16, right: 16, textAlign: 'center', color: '#fff', fontSize: 13, fontWeight: '700', textShadowColor: '#000', textShadowRadius: 6 },
-});
+}));

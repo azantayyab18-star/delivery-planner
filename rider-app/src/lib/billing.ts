@@ -28,6 +28,9 @@ export const trialAdjective = (days: number) => (days === 30 ? 'one-month' : `${
 export const PREMIUM_PLAN_KEY = 'pro';
 export const PREMIUM_NAME = 'Routify Premium';
 
+/** The server lets a rider look addresses up and plan routes only during the free trial or a paid, current plan. */
+export const hasUsablePlan = (status: string | null | undefined) => status === 'trialing' || status === 'active';
+
 export const loadStoreConfig = async () => (await get<StoreConfig>('/subscriptions/store')).data;
 
 /** The store this phone buys through, or null when the server has no store this app can use. */

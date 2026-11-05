@@ -1,5 +1,5 @@
 import { memo, useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -12,7 +12,7 @@ import { FAILURE_LABELS, stopCardText } from '../lib/format';
 import type { Delivery, Route, RouteStop } from '../lib/types';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
-import { light as c } from '../lib/theme';
+import { light as c, themed, statusBarStyle } from '../lib/theme';
 
 /** Shown once the last stop of a route is delivered or failed (design_pref "Route complete"). */
 export default function RouteComplete({ routeId }: { routeId: string }) {
@@ -35,7 +35,7 @@ export default function RouteComplete({ routeId }: { routeId: string }) {
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <FlashList
         data={failed}
         keyExtractor={(stop) => stop.delivery.id}
@@ -105,7 +105,7 @@ function Stat({ value, unit, label, color = c.text }: { value: string; unit?: st
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   badge: { alignSelf: 'center', width: 96, height: 96, borderRadius: 48, backgroundColor: c.successBg, alignItems: 'center', justifyContent: 'center' },
   title: { color: c.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.5, textAlign: 'center', marginTop: 28 },
   sub: { color: c.textSecondary, fontSize: 17, textAlign: 'center', marginTop: 8, marginBottom: 12 },
@@ -121,4 +121,4 @@ const s = StyleSheet.create({
   address: { color: c.textSecondary, fontSize: 15, lineHeight: 21, marginTop: 4 },
   reason: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: c.dangerBg, marginTop: 8 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 14, backgroundColor: c.background },
-});
+}));

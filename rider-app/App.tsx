@@ -3,7 +3,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from 'react-native-safe-area-cont
 import { Platform, Pressable, StatusBar as NativeStatusBar, Text, View } from 'react-native';
 import { useCallback, useEffect, useState } from 'react';
 import * as SplashScreen from 'expo-splash-screen';
-import { NavigationContainer, DefaultTheme, useFocusEffect } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme, DefaultTheme, useFocusEffect, type NavigationState } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator, type BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { AuthProvider, useAuth } from './src/lib/auth';
@@ -11,7 +11,8 @@ import { popTabToTop, TAB_ROOTS, TabContext, useNav, type TabName } from './src/
 import { ServiceAreaProvider } from './src/lib/serviceArea';
 import { QueryProvider } from './src/lib/query';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, light, spacing } from './src/lib/theme';
+import { colors, light, spacing, statusBarStyle } from './src/lib/theme';
+import { AppearanceProvider, useAppearance } from './src/lib/appearance';
 import Login from './src/screens/Login';
 import Register from './src/screens/Register';
 import ForgotPassword from './src/screens/ForgotPassword';
@@ -66,14 +67,14 @@ function ScreenRouter() {
     case 'RouteDetail': return <RouteDetail id={current.params!.id as string} />;
     case 'AddStops': return <AddStops name={current.params!.name as string} date={current.params!.date as string} routeId={current.params?.routeId as string | undefined} />;
     case 'RoutePreview': return <RoutePreview name={current.params?.name as string | undefined} date={current.params?.date as string | undefined} ids={current.params?.ids as string[] | undefined} routeId={current.params?.routeId as string | undefined} />;
-    case 'LiveNavigation': return <LiveNavigation />;
+    case 'LiveNavigation': return <LiveNavigation stopId={current.params?.stopId as string | undefined} />;
     // The screens below stay mounted and reload on focus, so going back is enough.
     case 'DeliveryDetail': return <DeliveryDetail id={current.params!.id as string} initialStep={current.params?.step as 'proof' | 'fail' | undefined} onDone={goBack} />;
     case 'RouteComplete': return <RouteComplete routeId={current.params!.routeId as string} />;
     case 'History': return <History />;
     case 'Reports': return <Reports />;
     case 'SubscriptionScreen': return <SubscriptionScreen />;
-    case 'Paywall': return <Paywall />;
+    case 'Paywall': return <Paywall then={current.params?.then as { name: string; params?: Record<string, unknown> } | undefined} />;
     case 'Account': return <Account />;
     default: return <Dashboard />;
   }
@@ -96,7 +97,7 @@ function ScreenHost() {
   const { current } = useNav();
   const isLight = LIGHT_SCREENS.has(current.name);
   // Several screens stay mounted now, so the status bar follows whichever one is in view.
-  useFocusEffect(useCallback(() => { setStatusBarStyle(isLight ? 'dark' : 'light'); }, [isLight]));
+  useFocusEffect(useCallback(() => { setStatusBarStyle(isLight ? statusBarStyle() : 'light'); }, [isLight]));
   return (
     <View style={{ flex: 1, backgroundColor: isLight ? light.background : colors.bg, paddingTop: insets.top }}>
       <BackBar />
@@ -152,15 +153,21 @@ function TabBar({ state, navigation }: BottomTabBarProps) {
   );
 }
 
-const THEME = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: light.background } };
+// Where the rider was (tabs and their screens), so switching light/dark, which draws the app again, keeps them there.
+let savedNav: { userId: string; state: NavigationState } | null = null;
 
 function AuthedApp() {
   const { user } = useAuth();
+  const { scheme } = useAppearance();
   // Purchases follow the Routify account, so RevenueCat knows the rider by their user id.
   useEffect(() => { if (user?.id) void identifyRider(user.id); }, [user?.id]);
+  const base = scheme === 'dark' ? DarkTheme : DefaultTheme;
+  const theme = { ...base, colors: { ...base.colors, background: light.background, card: light.background, border: light.border, text: light.text } };
+  const initialState = savedNav && savedNav.userId === user?.id ? savedNav.state : undefined;
 
   return (
-    <NavigationContainer theme={THEME}>
+    <NavigationContainer theme={theme} initialState={initialState}
+      onStateChange={(state) => { if (state && user?.id) savedNav = { userId: user.id, state }; }}>
       <ServiceAreaProvider>
         {/* Tabs stay mounted once opened; Back never switches tabs (as before). */}
         <Tabs.Navigator backBehavior="none" screenOptions={{ headerShown: false }} tabBar={(props) => <TabBar {...props} />}>
@@ -199,21 +206,32 @@ function Splash() {
   return done ? null : <AnimatedSplash ready={!loading} onFinish={finish} />;
 }
 
-export default function App() {
+/** The status bar follows the colour scheme (dark text on light screens, light text on dark ones). */
+function SystemBars({ scheme }: { scheme: 'light' | 'dark' }) {
   useEffect(() => {
-    NativeStatusBar.setBarStyle('light-content');
+    NativeStatusBar.setBarStyle(scheme === 'dark' ? 'light-content' : 'dark-content');
     // The status bar background colour is Android-only; iOS shows the app's background through it.
-    if (Platform.OS === 'android') NativeStatusBar.setBackgroundColor(colors.bg);
-  }, []);
+    if (Platform.OS === 'android') NativeStatusBar.setBackgroundColor(light.background);
+  }, [scheme]);
+  return <StatusBar style={statusBarStyle()} />;
+}
 
+export default function App() {
   return (
     <SafeAreaProvider>
       <AuthProvider>
         {/* Saved server data (Home, routes) survives restarts, so screens draw at once and refresh in the background. */}
         <QueryProvider>
-          <StatusBar style="light" />
-          <Gate />
-          <Splash />
+          <AppearanceProvider>
+            {(scheme) => (
+              <>
+                <SystemBars scheme={scheme} />
+                {/* Keyed by the scheme: light/dark draws every screen again in the new colours. */}
+                <Gate key={scheme} />
+                <Splash />
+              </>
+            )}
+          </AppearanceProvider>
         </QueryProvider>
       </AuthProvider>
     </SafeAreaProvider>

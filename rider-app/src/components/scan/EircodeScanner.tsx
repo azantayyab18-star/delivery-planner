@@ -8,7 +8,7 @@ import { eircodesInText } from '../../lib/scan/eircode';
 import { createEircodeVote } from '../../lib/scan/eircodeVote';
 import type { PickedAddress } from '../../lib/scan/photoLines';
 import AddressScan from './AddressScan';
-import { premium as c, premiumRadius as r } from '../../lib/theme';
+import { premium as c, premiumRadius as r, themed } from '../../lib/theme';
 import { PButton } from '../Premium';
 
 // The guide box, in % of the screen: one wide line, where the Eircode goes.
@@ -258,7 +258,7 @@ function ScannerBody({ onEircode, onTypeInstead, onClose, modeSwitch, onAddressM
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   center: { alignItems: 'center', justifyContent: 'center' },
   top: { position: 'absolute', left: 0, right: 0, top: 0, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingBottom: 12, backgroundColor: 'rgba(5,11,24,0.55)' },
   title: { flex: 1, color: '#fff', fontSize: 18, fontWeight: '800' },
@@ -269,4 +269,4 @@ const s = StyleSheet.create({
   switchItem: { paddingHorizontal: 18, paddingVertical: 8, borderRadius: 999 },
   switchOn: { backgroundColor: '#FFFFFF' },
   status: { position: 'absolute', left: 16, right: 16, bottom: 48, flexDirection: 'row', gap: 10, padding: 14, borderRadius: r.medium, backgroundColor: 'rgba(13,22,41,0.92)', borderWidth: 1, borderColor: c.border },
-});
+}));

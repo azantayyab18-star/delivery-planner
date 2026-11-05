@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { ExpoSpeechRecognitionModule, useSpeechRecognitionEvent } from 'expo-speech-recognition';
 import { Ionicons } from '@expo/vector-icons';
-import { light as lc, premium as c } from '../lib/theme';
+import { light as lc, premium as c, themed } from '../lib/theme';
 import type { VoicePanelProps } from '../lib/optionalNative';
 import { DARK_ON_PRIMARY, gradient } from './Premium';
 
@@ -55,8 +55,8 @@ export default function VoicePanel({ onText, compact, light }: VoicePanelProps) 
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   mic: { padding: 8, backgroundColor: 'rgba(255,170,50,0.12)' },
   micOn: { backgroundColor: 'rgba(255,83,104,0.18)' },
   micInner: { flex: 1, backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center' },
-});
+}));

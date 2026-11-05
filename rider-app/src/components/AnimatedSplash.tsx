@@ -3,7 +3,10 @@ import { Animated, Easing, StyleSheet, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 import Constants from 'expo-constants';
 import { StatusBar } from 'expo-status-bar';
-import { light as c } from '../lib/theme';
+import { currentScheme, light as c, themed, statusBarStyle } from '../lib/theme';
+
+// The mark in the colour scheme's version (made by assets/brand/make_brand.py).
+const MARKS = { light: require('../../assets/splash-mark.png'), dark: require('../../assets/splash-mark-dark.png') };
 
 /**
  * Takes over from the native splash (same mark, size and white background, so the hand-off is invisible), then
@@ -70,9 +73,9 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
       // The native splash stays up until this first frame is on screen, so there is no flash in between.
       onLayout={() => { void SplashScreen.hideAsync(); }}
     >
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <Animated.View style={[s.center, { transform: [{ translateY: intro.interpolate({ inputRange: [0, 1], outputRange: [0, -40] }) }] }]}>
-        <Animated.Image source={require('../../assets/splash-mark.png')} style={{ width: MARK, height: MARK }} resizeMode="contain" />
+        <Animated.Image source={MARKS[currentScheme()]} style={{ width: MARK, height: MARK }} resizeMode="contain" />
         <Animated.Text style={[s.word, fadeUp(word)]}>Routify</Animated.Text>
         <Animated.Text style={[s.tagline, fadeUp(tag)]}>PLAN  ·  DELIVER  ·  TRACK</Animated.Text>
         <Animated.View style={[s.dots, { opacity: tag }]}>
@@ -89,7 +92,7 @@ export default function AnimatedSplash({ ready, onFinish }: { ready: boolean; on
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   root: { backgroundColor: c.background, alignItems: 'center', justifyContent: 'center', zIndex: 100, elevation: 100 },
   center: { alignItems: 'center' },
   word: { color: c.text, fontSize: 34, fontWeight: '800', letterSpacing: -0.5, marginTop: 20 },
@@ -99,4 +102,4 @@ const s = StyleSheet.create({
   hint: { color: c.textSecondary, fontSize: 13, marginTop: 18 },
   version: { position: 'absolute', bottom: 40, left: 0, right: 0, alignItems: 'center' },
   versionText: { color: c.textSecondary, fontSize: 14 },
-});
+}));

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { isOnline, onOnlineChange } from '../lib/api';
 import { useAuth } from '../lib/auth';
 import { discardItem, retryItem, syncNow, useOutbox, type OutboxItem } from '../lib/outbox';
 import { LightButton } from './LightKit';
-import { light as c } from '../lib/theme';
+import { light as c, themed } from '../lib/theme';
 
 /**
  * What the phone still has to send (P4.4), on Home and the route map. Hidden while everything is synced. Tap: the list,
@@ -80,7 +80,7 @@ function Row({ item }: { item: OutboxItem }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   pill: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 6, height: 32, paddingHorizontal: 12, borderRadius: 999, marginTop: 12 },
   pillWaiting: { backgroundColor: c.warningBg },
   pillAttention: { backgroundColor: c.dangerBg },
@@ -94,4 +94,4 @@ const s = StyleSheet.create({
   rowTitle: { color: c.text, fontSize: 15, fontWeight: '600' },
   rowSub: { color: c.textSecondary, fontSize: 14, marginTop: 2 },
   action: { color: c.link, fontSize: 15, fontWeight: '600' },
-});
+}));

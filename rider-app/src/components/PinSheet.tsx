@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import GoogleRouteMap, { type Coordinates } from './GoogleRouteMap';
 import { post } from '../lib/api';
 import { getRouteOrigin } from '../lib/location';
-import { premium as c, premiumRadius as r } from '../lib/theme';
+import { premium as c, premiumRadius as r, themed } from '../lib/theme';
 import { PButton } from './Premium';
 
 export type PinResult = Coordinates & { address: string };
@@ -83,8 +83,8 @@ function PinBody({ position, center, onClose, onPick }: Omit<Props, 'visible'>) 
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   top: { position: 'absolute', left: 12, right: 12, flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: r.medium, backgroundColor: 'rgba(13,22,41,0.95)', borderWidth: 1, borderColor: c.border },
   back: { flexDirection: 'row', alignItems: 'center', gap: 2, paddingLeft: 8, paddingRight: 12, paddingVertical: 8, borderRadius: 99, backgroundColor: c.surfaceSoft },
   bottom: { position: 'absolute', left: 16, right: 16, bottom: 28 },
-});
+}));

@@ -4,7 +4,7 @@ import { LightButton } from './LightKit';
 import { stopCardText } from '../lib/format';
 import type { Duplicate } from '../lib/duplicates';
 import type { Delivery } from '../lib/types';
-import { light as c } from '../lib/theme';
+import { light as c, themed } from '../lib/theme';
 
 // The light prompts of the add-stop flow (design_pref "Already in your stops (sheet)" and "Stop added (modal)").
 // The *Sheet / *Card parts draw over whatever is behind them, so Confirm stop can show them on top of its map;
@@ -77,7 +77,7 @@ function townOf(address: string) {
   return /^(co\.?|county)\s/i.test(last) && parts.length > 1 ? parts[parts.length - 2] : last;
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   backdrop: { position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, backgroundColor: 'rgba(24,24,27,0.5)', justifyContent: 'flex-end' },
   sheet: { alignItems: 'center', backgroundColor: c.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingTop: 10, paddingBottom: 36 },
   grabber: { width: 36, height: 4, borderRadius: 2, backgroundColor: c.track, marginBottom: 24 },
@@ -87,4 +87,4 @@ const s = StyleSheet.create({
   sub: { color: c.textSecondary, fontSize: 15, marginTop: 6, textAlign: 'center' },
   row: { flexDirection: 'row', gap: 12, alignSelf: 'stretch', marginTop: 24 },
   link: { color: c.textLabel, fontSize: 15, fontWeight: '500', textDecorationLine: 'underline' },
-});
+}));

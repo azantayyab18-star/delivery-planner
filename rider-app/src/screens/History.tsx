@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, RefreshControl, SectionList, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '../lib/useFocusEffect';
@@ -9,7 +9,7 @@ import { dayKey, fromDayKey } from '../lib/format';
 import { Screen } from '../components/Kit';
 import { LightError } from '../components/LightKit';
 import { useNav } from '../lib/nav';
-import { light as c } from '../lib/theme';
+import { light as c, themed, statusBarStyle } from '../lib/theme';
 
 type Filter = 'all' | 'completed' | 'failures';
 const FILTERS: { key: Filter; label: string }[] = [
@@ -68,7 +68,7 @@ export default function History() {
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <SectionList
         sections={sections}
         keyExtractor={(r) => r.id}
@@ -140,7 +140,7 @@ function Dot({ color, text }: { color: string; text: string }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   title: { color: c.text, fontSize: 32, fontWeight: '800', letterSpacing: -0.5 },
   filters: { flexDirection: 'row', gap: 10, marginTop: 18, marginBottom: 12 },
@@ -153,4 +153,4 @@ const s = StyleSheet.create({
   name: { color: c.text, fontSize: 18, fontWeight: '600' },
   meta: { color: c.textSecondary, fontSize: 15, marginTop: 4 },
   counts: { flexDirection: 'row', gap: 18, marginTop: 8 },
-});
+}));

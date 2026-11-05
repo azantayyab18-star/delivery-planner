@@ -20,6 +20,8 @@ type NavContextValue = {
   resetTab: (tab: TabName) => void;
   /** Replaces the current tab's history with its root plus this screen, so Back skips the flow that led here. */
   resetTo: (name: string, params?: Record<string, unknown>) => void;
+  /** Swaps the current screen for another one, e.g. the paywall for the step it was guarding once the rider buys. */
+  replace: (name: string, params?: Record<string, unknown>) => void;
 };
 
 type TabsState = { routes: readonly { name: string; state?: { key?: string; index?: number } }[] };
@@ -53,8 +55,9 @@ export function useNav(): NavContextValue {
   const resetTo = useCallback((name: string, params?: Record<string, unknown>) => {
     navigation.dispatch(CommonActions.reset({ index: 1, routes: [{ name: TAB_ROOTS[tab] }, { name, params }] }));
   }, [navigation, tab]);
+  const replace = useCallback((name: string, params?: Record<string, unknown>) => navigation.dispatch(StackActions.replace(name, params)), [navigation]);
 
   return useMemo<NavContextValue>(() => ({
-    tab, current: { name: route.name, params: route.params as Record<string, unknown> | undefined }, canGoBack, switchTab, navigate, goBack, resetTab, resetTo,
-  }), [tab, route.name, route.params, canGoBack, switchTab, navigate, goBack, resetTab, resetTo]);
+    tab, current: { name: route.name, params: route.params as Record<string, unknown> | undefined }, canGoBack, switchTab, navigate, goBack, resetTab, resetTo, replace,
+  }), [tab, route.name, route.params, canGoBack, switchTab, navigate, goBack, resetTab, resetTo, replace]);
 }

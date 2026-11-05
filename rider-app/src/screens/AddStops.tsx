@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, TextInput, Vibration, View } from 'react-native';
+import { ActivityIndicator, Alert, Pressable, Text, TextInput, Vibration, View } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { KeyboardAwareScrollView, RevealingTextInput } from '../components/KeyboardAware';
@@ -28,7 +28,7 @@ import { voiceToAddress } from '../lib/voice';
 import { useAuth } from '../lib/auth';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
-import { light as c, lightRadius as lr } from '../lib/theme';
+import { light as c, lightRadius as lr, themed } from '../lib/theme';
 
 type Point = { latitude: number; longitude: number };
 type Sheet = 'scan' | 'barcode' | 'pin' | 'import' | null;
@@ -474,7 +474,7 @@ const AddedStopRow = memo(function AddedStopRow({ stop, index, highlighted, onRe
   );
 });
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
   title: { color: c.text, fontSize: 24, fontWeight: '700' },
   context: { color: c.textSecondary, fontSize: 13, marginTop: 2 },
@@ -496,4 +496,4 @@ const s = StyleSheet.create({
   stopHighlight: { backgroundColor: c.linkBg, marginHorizontal: -12, paddingHorizontal: 12, borderRadius: 12 },
   badge: { width: 28, height: 28, borderRadius: 14, backgroundColor: c.soft, alignItems: 'center', justifyContent: 'center', marginTop: 1 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 14, backgroundColor: c.background, borderTopWidth: 1, borderTopColor: c.border },
-});
+}));

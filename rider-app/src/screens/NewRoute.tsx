@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { KeyboardAwareScrollView, useRevealOnFocus } from '../components/KeyboardAware';
@@ -12,8 +12,10 @@ import { rememberRouteName } from '../lib/routeNames';
 import { fetchCurrentRoute } from '../lib/v2api';
 import type { Route } from '../lib/types';
 import { useFocusEffect } from '../lib/useFocusEffect';
-import { light as c, lightRadius as lr } from '../lib/theme';
+import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/theme';
 import { useNav } from '../lib/nav';
+import { useHome } from '../lib/queries';
+import { hasUsablePlan } from '../lib/billing';
 
 // Step 1 of Add route: pick the route's day (today, tomorrow or any later date) and name it. `initialDate` comes from
 // Home when the rider adds a route for the day they are looking at. A day can have several routes: a new route never
@@ -37,16 +39,30 @@ export default function NewRoute({ initialDate }: { initialDate?: string }) {
   const tomorrow = dayKey(1);
   const picked = date !== today && date !== tomorrow;
 
+  // Adding stops looks addresses up and planning runs the route planner: both need a plan (or its free trial). Without
+  // one the rider can still name the route; saving the name opens the paywall, which continues to Add stops once bought.
+  const home = useHome({ refreshOnFocus: false });
+  const [checking, setChecking] = useState(false);
   const fallback = defaultRouteName(date);
-  const next = () => {
+  const next = async () => {
+    if (checking) return;
     const routeName = name.trim() || fallback;
     void rememberRouteName(date, routeName);
-    navigate('AddStops', { name: routeName, date });
+    const addStops = { name: 'AddStops', params: { name: routeName, date } };
+    let status = home.data?.planStatus;
+    if (!hasUsablePlan(status)) {
+      // The saved copy may be from before the rider bought: ask again before showing the paywall.
+      setChecking(true);
+      status = (await home.refetch().catch(() => null))?.data?.planStatus ?? status;
+      setChecking(false);
+    }
+    if (hasUsablePlan(status)) navigate(addStops.name, addStops.params);
+    else navigate('Paywall', { then: addStops });
   };
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <KeyboardAwareScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
         <Pressable onPress={goBack} hitSlop={12} accessibilityLabel="Back" style={{ alignSelf: 'flex-start' }}>
           <Ionicons name="arrow-back" size={26} color={c.text} />
@@ -82,19 +98,9 @@ export default function NewRoute({ initialDate }: { initialDate?: string }) {
         ) : null}
 
         <Text style={[s.label, { marginTop: 28 }]}>ROUTE NAME</Text>
-        <NameField value={name} onChangeText={setName} placeholder={fallback} onSubmit={next} />
+        <NameField value={name} onChangeText={setName} placeholder={fallback} onSubmit={() => void next()} />
         <Text style={s.hint}>Optional, e.g. Ballsbridge run</Text>
 
-        <Text style={[s.label, { marginTop: 28 }]}>START POINT</Text>
-        <View style={s.row}>
-          <MaterialCommunityIcons name="crosshairs-gps" size={24} color={c.text} />
-          <Text style={s.rowText}>Current location</Text>
-          {/* MISSING: see missing.md — the start is always the GPS position when the route is planned. */}
-          <Pressable disabled accessibilityState={{ disabled: true }} hitSlop={8}>
-            <Text style={[s.link, { opacity: 0.4 }]}>Change</Text>
-          </Pressable>
-        </View>
-        <View style={s.divider} />
         {/* MISSING: see missing.md — there is no way to copy stops from another route yet. */}
         <Pressable disabled accessibilityState={{ disabled: true }} style={[s.row, { opacity: 0.4 }]}>
           <MaterialCommunityIcons name="content-copy" size={22} color={c.text} />
@@ -104,7 +110,7 @@ export default function NewRoute({ initialDate }: { initialDate?: string }) {
       </KeyboardAwareScrollView>
 
       <View style={s.footer}>
-        <LightButton title="Continue to stops" icon={<Ionicons name="arrow-forward" size={22} color={c.onInk} />} onPress={next} style={{ flexDirection: 'row-reverse' }} />
+        <LightButton title="Continue to stops" icon={<Ionicons name="arrow-forward" size={22} color={c.onInk} />} onPress={() => void next()} loading={checking} style={{ flexDirection: 'row-reverse' }} />
       </View>
     </Screen>
   );
@@ -133,7 +139,7 @@ function NameField({ value, onChangeText, placeholder, onSubmit }: { value: stri
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   title: { color: c.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.5, marginTop: 28 },
   subtitle: { color: c.textSecondary, fontSize: 16, lineHeight: 23, marginTop: 10, marginBottom: 24 },
   label: { color: c.textSecondary, fontSize: 13, fontWeight: '600', letterSpacing: 1.2, marginBottom: 12 },
@@ -154,4 +160,4 @@ const s = StyleSheet.create({
   link: { color: c.link, fontSize: 17, fontWeight: '500' },
   divider: { height: 1, backgroundColor: c.border, marginVertical: 10 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 24, paddingTop: 12, paddingBottom: 14, backgroundColor: c.background, borderTopWidth: 1, borderTopColor: c.border },
-});
+}));

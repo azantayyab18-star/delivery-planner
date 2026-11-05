@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useAuth } from '../lib/auth';
@@ -8,7 +8,7 @@ import type { PublicConfig } from '../lib/types';
 import { Screen } from '../components/Kit';
 import { ErrorBanner, PButton, PInput, SectionLabel } from '../components/Premium';
 import { AUTOFILL } from '../lib/inputs';
-import { premium as c, premiumRadius as r } from '../lib/theme';
+import { premium as c, premiumRadius as r, themed } from '../lib/theme';
 
 type Step = 'email' | 'code' | 'password';
 const RESEND_SECONDS = 60;
@@ -136,7 +136,7 @@ function Steps({ step }: { step: Step }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   page: { flexGrow: 1, justifyContent: 'center', padding: 24 },
   back: { position: 'absolute', top: 16, left: 24, backgroundColor: c.surfaceSoft, paddingHorizontal: 12, paddingVertical: 8, borderRadius: r.pill },
   backText: { color: c.text, fontWeight: '800', fontSize: 13 },
@@ -146,4 +146,4 @@ const s = StyleSheet.create({
   steps: { flexDirection: 'row', gap: 6, marginTop: 18, marginBottom: 22 },
   stepBar: { flex: 1, height: 4, borderRadius: 2, backgroundColor: c.border },
   devHint: { color: c.textMuted, fontSize: 11, textAlign: 'center', lineHeight: 16 },
-});
+}));

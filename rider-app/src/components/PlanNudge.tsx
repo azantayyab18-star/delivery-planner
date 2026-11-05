@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useNav } from '../lib/nav';
 import { useHome } from '../lib/queries';
 import { loadStoreConfig, pickStore, PREMIUM_NAME, trialAdjective } from '../lib/billing';
 import { LightButton } from './LightKit';
-import { light as c } from '../lib/theme';
+import { light as c, themed } from '../lib/theme';
 
 /**
  * Home's top-right plan button. Without a working plan: "Free trial" / "Upgrade", which opens a sheet that leads to the
@@ -72,7 +72,7 @@ export default function PlanNudge() {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   chip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 34, paddingHorizontal: 12, borderRadius: 999, backgroundColor: c.linkBg },
   chipText: { color: c.link, fontSize: 14, fontWeight: '600' },
   premium: { backgroundColor: c.link },
@@ -83,4 +83,4 @@ const s = StyleSheet.create({
   icon: { width: 56, height: 56, borderRadius: 16, backgroundColor: c.linkBg, alignItems: 'center', justifyContent: 'center' },
   title: { color: c.text, fontSize: 22, fontWeight: '700', textAlign: 'center', marginTop: 18 },
   sub: { color: c.textSecondary, fontSize: 15, lineHeight: 22, textAlign: 'center', marginTop: 8 },
-});
+}));

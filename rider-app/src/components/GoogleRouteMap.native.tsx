@@ -1,10 +1,10 @@
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
+import { Platform, Pressable, Text, View, type LayoutChangeEvent, type ViewStyle } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT, PROVIDER_GOOGLE, UrlTile } from 'react-native-maps';
 import { isRunningInExpoGo } from 'expo';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { light as l, premium as c } from '../lib/theme';
-import { LIGHT_MAP_STYLE } from '../lib/mapStyles';
+import { currentScheme, light as l, premium as c, themed } from '../lib/theme';
+import { DARK_MAP_STYLE, schemeMapStyle } from '../lib/mapStyles';
 import { visibleStops } from '../lib/mapPins';
 
 export type Coordinates = { latitude: number; longitude: number };
@@ -34,7 +34,18 @@ export type GoogleRouteMapProps = {
   light?: boolean;
   /** Draw at most this many stop pins (see visibleStops in lib/mapPins); all when unset. */
   maxStops?: number;
+  /**
+   * Turn-by-turn mode (with `follow`): closer and tilted like a car's satnav, a thick route line, no fit button. The
+   * screen draws its own re-centre button: `onFollowChange(false)` when the rider moves the map, and a new
+   * `recenter` value snaps the camera back to them.
+   */
+  navigation?: boolean;
+  onFollowChange?: (following: boolean) => void;
+  recenter?: number;
 };
+
+const NAV_CAMERA = { zoom: 18, pitch: 55 };
+const FOLLOW_CAMERA = { zoom: 17, pitch: 35 };
 
 const EDGE = { top: 60, right: 50, bottom: 60, left: 50 };
 
@@ -70,7 +81,8 @@ const kmApart = (a: Coordinates, b: Coordinates) => {
   return 12742 * Math.asin(Math.sqrt(h));
 };
 
-export default function GoogleRouteMap({ stops: allStops, position, path, order, focus, style, pinning, onCenterChange, initialCenter, reveal, follow, heading, light, maxStops }: GoogleRouteMapProps) {
+export default function GoogleRouteMap({ stops: allStops, position, path, order, focus, style, pinning, onCenterChange, initialCenter, reveal, follow, heading, light, maxStops, navigation, onFollowChange, recenter }: GoogleRouteMapProps) {
+  const camera = navigation ? NAV_CAMERA : FOLLOW_CAMERA;
   const stops = useMemo(() => visibleStops(allStops, maxStops), [allStops, maxStops]);
   const line = light ? l.link : c.primary;
   const map = useRef<MapView>(null);
@@ -119,26 +131,39 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
   // Navigation keeps the rider in view, a little zoomed in, facing the way they travel.
   useEffect(() => {
     if (!ready || !follow || !position || userMoved.current) return;
-    map.current?.animateCamera({ center: position, zoom: 17, heading: heading ?? 0, pitch: 35 }, { duration: 600 });
+    map.current?.animateCamera({ center: position, ...camera, heading: heading ?? 0 }, { duration: 600 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, follow, position, heading]);
+
+  // The screen's re-centre button.
+  useEffect(() => {
+    if (!ready || recenter == null) return;
+    userMoved.current = false;
+    onFollowChange?.(true);
+    if (position) map.current?.animateCamera({ center: position, ...camera, heading: heading ?? 0 }, { duration: 400 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recenter]);
 
   const start = framing || stops[0] || position || initialCenter || { latitude: 0, longitude: 0 };
   const shown = reveal == null ? stops : stops.slice(0, reveal);
   const revealing = reveal != null && reveal < stops.length;
 
   return (
-    <View onLayout={onLayout} style={[{ height: 300, overflow: 'hidden', backgroundColor: light ? '#EEF0F3' : c.surface }, style]}>
+    <View onLayout={onLayout} style={[{ height: 300, overflow: 'hidden', backgroundColor: light && currentScheme() === 'light' ? '#EEF0F3' : c.surface }, style]}>
       <MapView
         ref={map}
         provider={PROVIDER}
         mapType={IN_EXPO_GO && Platform.OS === 'android' ? 'none' : 'standard'}
-        userInterfaceStyle="dark"
+        userInterfaceStyle={light ? currentScheme() : 'dark'}
         style={{ flex: 1 }}
         initialRegion={{ ...start, latitudeDelta: start === initialCenter ? 0.2 : 0.05, longitudeDelta: start === initialCenter ? 0.2 : 0.05 }}
-        customMapStyle={light ? LIGHT_MAP_STYLE : DARK_STYLE}
+        customMapStyle={light ? schemeMapStyle() : DARK_MAP_STYLE}
         onMapReady={() => setReady(true)}
         onRegionChangeComplete={(region, details) => {
-          if (details?.isGesture) userMoved.current = true;
+          if (details?.isGesture) {
+            if (!userMoved.current) onFollowChange?.(false);
+            userMoved.current = true;
+          }
           if (pinning) onCenterChange?.({ latitude: region.latitude, longitude: region.longitude });
         }}
         toolbarEnabled={false}
@@ -148,7 +173,11 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
       >
         {IN_EXPO_GO && Platform.OS === 'android' ? <UrlTile urlTemplate={DEV_TILES} maximumZ={19} tileSize={256} zIndex={-1} /> : null}
 
-        {revealing ? null : path.length > 1 ? (
+        {revealing ? null : path.length > 1 && navigation ? (
+          // A darker edge under the line, so it stands out on any street colour.
+          [<Polyline key="edge" coordinates={path} strokeColor="#1E3A8A" strokeWidth={11} zIndex={1} />,
+            <Polyline key="line" coordinates={path} strokeColor={line} strokeWidth={7} zIndex={2} />]
+        ) : path.length > 1 ? (
           <Polyline coordinates={path} strokeColor={line} strokeWidth={5} />
         ) : order.length > 1 || (framing && order.length) ? (
           <Polyline coordinates={framing ? [framing, ...order] : order} strokeColor={line} strokeWidth={3} lineDashPattern={[10, 8]} />
@@ -170,9 +199,9 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
         </View>
       ) : null}
 
-      <Pressable onPress={() => { userMoved.current = false; if (follow && position) map.current?.animateCamera({ center: position, zoom: 17, heading: heading ?? 0, pitch: 35 }, { duration: 400 }); else fit(true); }} hitSlop={6} style={light ? s.fitLight : s.fitDark} accessibilityLabel="Show the whole route">
+      {navigation ? null : <Pressable onPress={() => { userMoved.current = false; if (follow && position) map.current?.animateCamera({ center: position, ...camera, heading: heading ?? 0 }, { duration: 400 }); else fit(true); }} hitSlop={6} style={light ? s.fitLight : s.fitDark} accessibilityLabel="Show the whole route">
         <MaterialCommunityIcons name="crosshairs-gps" size={19} color={light ? l.ink : c.primary} />
-      </Pressable>
+      </Pressable>}
     </View>
   );
 }
@@ -222,25 +251,7 @@ const PositionMarker = memo(function PositionMarker({ latitude, longitude }: Coo
   );
 });
 
-// Google's dark map theme, close to the app's colours.
-const DARK_STYLE = [
-  { elementType: 'geometry', stylers: [{ color: '#1d2c4d' }] },
-  { elementType: 'labels.text.fill', stylers: [{ color: '#8ec3b9' }] },
-  { elementType: 'labels.text.stroke', stylers: [{ color: '#1a3646' }] },
-  { featureType: 'administrative.country', elementType: 'geometry.stroke', stylers: [{ color: '#4b6878' }] },
-  { featureType: 'landscape.natural', elementType: 'geometry', stylers: [{ color: '#023e58' }] },
-  { featureType: 'poi', elementType: 'geometry', stylers: [{ color: '#283d6a' }] },
-  { featureType: 'poi', elementType: 'labels.text.fill', stylers: [{ color: '#6f9ba5' }] },
-  { featureType: 'poi.park', elementType: 'geometry.fill', stylers: [{ color: '#023e58' }] },
-  { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#304a7d' }] },
-  { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#98a5be' }] },
-  { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#2c6675' }] },
-  { featureType: 'transit', elementType: 'labels.text.fill', stylers: [{ color: '#98a5be' }] },
-  { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#0e1626' }] },
-  { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#4e6d70' }] },
-];
-
-const s = StyleSheet.create({
+const s = themed(() => ({
   fitDark: { position: 'absolute', right: 12, top: 12, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(13,22,41,0.92)', borderWidth: 1, borderColor: c.border, alignItems: 'center', justifyContent: 'center' },
-  fitLight: { position: 'absolute', right: 16, top: 16, width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
-});
+  fitLight: { position: 'absolute', right: 16, top: 16, width: 44, height: 44, borderRadius: 22, backgroundColor: l.surface, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
+}));

@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { useAuth } from '../lib/auth';
 import { ApiRequestError, API_URL } from '../lib/api';
 import { StatusBar } from 'expo-status-bar';
 import { Screen } from '../components/Kit';
-import { GoogleButton, LightBrand, LightButton, LightDivider, LightError, LightField } from '../components/LightKit';
-import { light as c } from '../lib/theme';
+import { LightBrand, LightButton, LightError, LightField } from '../components/LightKit';
+import SocialSignIn from '../components/SocialSignIn';
+import { light as c, themed, statusBarStyle } from '../lib/theme';
 
 export default function Login({ onGoRegister, onForgot }: { onGoRegister: () => void; onForgot: (email: string) => void }) {
   const { login } = useAuth();
@@ -29,7 +30,7 @@ export default function Login({ onGoRegister, onForgot }: { onGoRegister: () => 
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-        <StatusBar style="dark" />
+        <StatusBar style={statusBarStyle()} />
         <KeyboardAwareScrollView contentContainerStyle={s.page} keyboardShouldPersistTaps="handled">
           <LightBrand />
           <Text style={s.title}>Welcome back</Text>
@@ -47,9 +48,8 @@ export default function Login({ onGoRegister, onForgot }: { onGoRegister: () => 
           </View>
 
           <LightButton title="Sign in" onPress={submit} loading={busy} disabled={!email || !password} style={{ marginTop: 28 }} />
-          <LightDivider />
-          {/* MISSING: see missing.md — there is no Google sign-in in the app or API yet. */}
-          <GoogleButton />
+          {/* Continue with Google (Android) / Sign in with Apple (iPhone). */}
+          <SocialSignIn onError={setError} />
 
           <Pressable onPress={onGoRegister} style={{ alignItems: 'center', marginTop: 'auto', paddingTop: 40, paddingBottom: 8 }}>
             <Text style={{ color: c.textSecondary, fontSize: 15 }}>Don&apos;t have an account?  <Text style={{ color: c.link, fontWeight: '600' }}>Sign up</Text></Text>
@@ -59,15 +59,9 @@ export default function Login({ onGoRegister, onForgot }: { onGoRegister: () => 
   );
 }
 
-export const BRAND_MARK = require('../../assets/brand/routify-mark.png');
 
-export function BrandMark() {
-  return <Image source={BRAND_MARK} style={s.mark} resizeMode="contain" accessibilityLabel="Routify" />;
-}
-
-const s = StyleSheet.create({
+const s = themed(() => ({
   page: { flexGrow: 1, paddingHorizontal: 24, paddingTop: 72, paddingBottom: 32 },
-  mark: { width: 76, height: 70, marginBottom: 16 },
   title: { color: c.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.6, marginTop: 52, marginBottom: 8 },
   subtitle: { color: c.textSecondary, fontSize: 16, lineHeight: 22, marginBottom: 36 },
-});
+}));

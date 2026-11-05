@@ -3,7 +3,7 @@ import { View, type ViewStyle } from 'react-native';
 import MapView, { Circle, Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Ionicons } from '@expo/vector-icons';
 import { light as c } from '../../lib/theme';
-import { LIGHT_MAP_STYLE } from '../../lib/mapStyles';
+import { schemeMapStyle } from '../../lib/mapStyles';
 
 export type ConfirmMapProps = {
   /** The stop's point once it is found; until then the map shows `fallback` without a pin. */
@@ -25,12 +25,12 @@ export default function ConfirmMap({ point, fallback, style }: ConfirmMapProps) 
   }, [center.latitude, center.longitude, point, fallback]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <View style={[{ backgroundColor: '#EEF0F3' }, style]}>
+    <View style={[{ backgroundColor: c.soft }, style]}>
       <MapView
         ref={map}
         provider={PROVIDER_GOOGLE}
         style={{ flex: 1 }}
-        customMapStyle={LIGHT_MAP_STYLE}
+        customMapStyle={schemeMapStyle()}
         initialCamera={{ center, zoom: point ? 16 : fallback ? 13 : 6, heading: 0, pitch: 0 }}
         toolbarEnabled={false}
         showsCompass={false}

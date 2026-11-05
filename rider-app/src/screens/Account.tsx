@@ -1,5 +1,5 @@
 import { useEffect, useState, type ComponentProps, type ReactNode } from 'react';
-import { Alert, Linking, Pressable, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
+import { Alert, Linking, Pressable, Switch, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
@@ -10,11 +10,18 @@ import { Screen } from '../components/Kit';
 import { KeyboardAwareScrollView, useRevealOnFocus } from '../components/KeyboardAware';
 import { LightButton, LightError } from '../components/LightKit';
 import { AUTOFILL } from '../lib/inputs';
-import { light as c, lightRadius as lr } from '../lib/theme';
+import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/theme';
 import { useNav } from '../lib/nav';
 import { useServiceArea } from '../lib/serviceArea';
+import { useAppearance, type Appearance } from '../lib/appearance';
 
 type IonName = ComponentProps<typeof Ionicons>['name'];
+
+const APPEARANCES: { key: Appearance; label: string; icon: IonName }[] = [
+  { key: 'system', label: 'System', icon: 'phone-portrait-outline' },
+  { key: 'light', label: 'Light', icon: 'sunny-outline' },
+  { key: 'dark', label: 'Dark', icon: 'moon-outline' },
+];
 
 /**
  * Account (design_pref "Account"): profile, settings, support and about. Rows the app has nothing behind yet are shown
@@ -30,7 +37,8 @@ export default function Account() {
   const [cityInput, setCityInput] = useState('');
   const [detecting, setDetecting] = useState(false);
   const { checkNow } = useServiceArea();
-  const [open, setOpen] = useState<'area' | 'password' | null>(null);
+  const [open, setOpen] = useState<'area' | 'password' | 'appearance' | null>(null);
+  const { appearance, setAppearance } = useAppearance();
   const [config, setConfig] = useState<PublicConfig | null>(null);
   useEffect(() => { get<PublicConfig>('/config').then((res) => setConfig(res.data)).catch(() => {}); }, []);
 
@@ -75,7 +83,7 @@ export default function Account() {
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <KeyboardAwareScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
         <Text style={s.title}>Account</Text>
         <LightError text={error} />
@@ -93,11 +101,30 @@ export default function Account() {
         </View>
 
         <Text style={s.section}>Settings</Text>
-        {/* MISSING: see missing.md — only Google Maps is supported, and there are no unit, sound or theme settings. */}
+        {/* MISSING: see missing.md — only Google Maps is supported, and there are no unit or sound settings. */}
         <Row icon="navigate-outline" label="Navigation app" value="Google Maps" disabled first />
         <Row icon="resize-outline" label="Units" value="km" disabled />
-        <Row icon="volume-medium-outline" label="Scan sound & vibration" disabled right={<Switch value disabled trackColor={{ true: c.link, false: c.track }} thumbColor="#fff" />} />
-        <Row icon="sunny-outline" label="Appearance" value="Light" disabled />
+        <Row icon="volume-medium-outline" label="Scan sound & vibration" disabled right={<Switch value disabled trackColor={{ true: c.link, false: c.track }} thumbColor={c.surface} />} />
+        {/* Light, dark, or as the phone (the default). */}
+        <Row icon={appearance === 'dark' ? 'moon-outline' : 'sunny-outline'} label="Appearance" value={APPEARANCES.find((a) => a.key === appearance)?.label}
+          onPress={() => setOpen(open === 'appearance' ? null : 'appearance')} expanded={open === 'appearance'} />
+        {open === 'appearance' ? (
+          <View style={s.panel}>
+            <View style={s.segments}>
+              {APPEARANCES.map((a) => {
+                const on = appearance === a.key;
+                return (
+                  <Pressable key={a.key} onPress={() => setAppearance(a.key)} style={({ pressed }) => [s.segment, on && s.segmentOn, pressed && { opacity: 0.85 }]}
+                    accessibilityRole="radio" accessibilityState={{ selected: on }}>
+                    <Ionicons name={a.icon} size={18} color={on ? c.onInk : c.text} />
+                    <Text style={{ color: on ? c.onInk : c.text, fontSize: 15, fontWeight: '600' }}>{a.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <Text style={[s.hint, { marginTop: 10 }]}>System follows your phone&apos;s light or dark setting.</Text>
+          </View>
+        ) : null}
         {/* Not in the design: the existing account settings. */}
         <Row icon="location-outline" label="Delivery area" value={area?.city || 'Not set'} onPress={() => setOpen(open === 'area' ? null : 'area')} expanded={open === 'area'} />
         {open === 'area' ? (
@@ -163,7 +190,7 @@ function Field({ placeholder, value, onChangeText, onSubmit, secure, autofill }:
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   title: { color: c.text, fontSize: 32, fontWeight: '800', letterSpacing: -0.5, marginBottom: 8 },
   profile: { flexDirection: 'row', alignItems: 'center', marginTop: 16, marginBottom: 8 },
   avatar: { width: 64, height: 64, borderRadius: 32, backgroundColor: c.linkBg, alignItems: 'center', justifyContent: 'center' },
@@ -178,7 +205,10 @@ const s = StyleSheet.create({
   rowLabel: { flex: 1, color: c.text, fontSize: 17 },
   rowValue: { color: c.textSecondary, fontSize: 16, maxWidth: '45%' },
   panel: { paddingBottom: 16 },
+  segments: { flexDirection: 'row', gap: 8, padding: 4, borderRadius: lr.field, backgroundColor: c.soft },
+  segment: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 42, borderRadius: lr.field - 4 },
+  segmentOn: { backgroundColor: c.ink },
   hint: { color: c.textSecondary, fontSize: 14, lineHeight: 20 },
   field: { minHeight: 50, borderRadius: lr.field, borderWidth: 1, borderColor: c.border, paddingHorizontal: 16, color: c.text, fontSize: 16, marginTop: 10 },
   signOut: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 28, paddingVertical: 16, borderTopWidth: 1, borderTopColor: c.border },
-});
+}));

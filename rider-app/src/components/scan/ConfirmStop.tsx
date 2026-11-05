@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -12,7 +12,7 @@ import { checkAddress, createStop, DuplicateStopError } from '../../lib/stops';
 import { findDuplicate, type Duplicate } from '../../lib/duplicates';
 import { stopCardText } from '../../lib/format';
 import type { Delivery, GeocodeCheck } from '../../lib/types';
-import { light as c, lightRadius as lr } from '../../lib/theme';
+import { light as c, lightRadius as lr, themed, statusBarStyle } from '../../lib/theme';
 
 type Point = { latitude: number; longitude: number };
 
@@ -109,7 +109,7 @@ function ConfirmBody({ eircode, date, near, existing, onAdded, onRescan, onViewS
 
   return (
     <Modal visible animationType="slide" statusBarTranslucent onRequestClose={onClose}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <View style={{ flex: 1, backgroundColor: c.background }}>
         <ConfirmMap point={point} fallback={near} style={{ flex: 1 }} />
         <Pressable onPress={onClose} hitSlop={10} style={[s.back, { top: insets.top + 12 }]} accessibilityLabel="Back">
@@ -155,7 +155,7 @@ function ConfirmBody({ eircode, date, near, existing, onAdded, onRescan, onViewS
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   back: { position: 'absolute', left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
   panel: { marginTop: -28, backgroundColor: c.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingTop: 10 },
   grabber: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: c.track, marginBottom: 20 },
@@ -167,4 +167,4 @@ const s = StyleSheet.create({
   input: { flex: 1, color: c.text, fontSize: 16, paddingVertical: 12 },
   verifying: { backgroundColor: c.track, borderWidth: 0, opacity: 0.8 },
   rescan: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 16 },
-});
+}));

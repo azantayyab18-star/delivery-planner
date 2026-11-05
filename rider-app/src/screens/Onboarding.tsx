@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Linking, Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { Screen } from '../components/Kit';
 import { LightButton } from '../components/LightKit';
 import { PERMISSION_STEPS, checkPermission, finishOnboarding, notificationsSupported, requestPermission, type PermissionState, type PermissionStep } from '../lib/permissions';
-import { light as c } from '../lib/theme';
+import { light as c, themed, statusBarStyle } from '../lib/theme';
 
 const PAGES: Record<PermissionStep, { title: string; text: string; name: string; art: ReactNode }> = {
   location: { title: 'Allow location access', text: 'We use your location to plan routes and guide you to each stop', name: 'Location', art: <LocationArt /> },
@@ -71,7 +71,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   if (!steps) {
     return (
       <Screen style={{ backgroundColor: c.background, alignItems: 'center', justifyContent: 'center' }}>
-        <StatusBar style="dark" />
+        <StatusBar style={statusBarStyle()} />
         <ActivityIndicator color={c.ink} />
       </Screen>
     );
@@ -80,7 +80,7 @@ export default function Onboarding({ onDone }: { onDone: () => void }) {
   const page = PAGES[steps[index]];
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <View style={s.page}>
         {steps.length > 1 ? (
           <View style={s.dots} accessibilityLabel={`Step ${index + 1} of ${steps.length}`}>
@@ -145,7 +145,7 @@ const CORNERS = {
   br: { bottom: 0, right: 0, borderBottomWidth: 3, borderRightWidth: 3, borderBottomRightRadius: 8 },
 };
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   page: { flex: 1, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 24 },
   dots: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: c.track },
@@ -163,4 +163,4 @@ const s = StyleSheet.create({
   frame: { width: 108, height: 108, alignItems: 'center', justifyContent: 'center' },
   corner: { position: 'absolute', width: CORNER, height: CORNER, borderColor: c.link },
   bellDot: { position: 'absolute', top: 8, right: 10, width: 22, height: 22, borderRadius: 11, borderWidth: 3, borderColor: c.link, backgroundColor: c.linkBg },
-});
+}));

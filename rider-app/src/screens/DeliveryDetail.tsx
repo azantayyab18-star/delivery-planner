@@ -16,7 +16,7 @@ import { Screen } from '../components/Kit';
 import { type PillTone } from '../components/Premium';
 import { LightButton, LightError } from '../components/LightKit';
 import ConfirmMap from '../components/scan/ConfirmMap';
-import { light as c, lightRadius as lr } from '../lib/theme';
+import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/theme';
 import { useNav } from '../lib/nav';
 
 const REASONS: FailureReason[] = ['customer_unavailable', 'customer_refused', 'wrong_address', 'phone_unreachable', 'business_closed', 'other'];
@@ -166,7 +166,7 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
   if (!delivery) {
     return (
       <Screen style={{ padding: 24, backgroundColor: c.background }}>
-        <StatusBar style="dark" />
+        <StatusBar style={statusBarStyle()} />
         {error ? <LightError text={error} /> : <ActivityIndicator color={c.ink} style={{ marginTop: 48 }} />}
       </Screen>
     );
@@ -180,7 +180,7 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
     const { title: code } = stopCardText(delivery);
     return (
       <Screen style={{ backgroundColor: c.background }}>
-        <StatusBar style="dark" />
+        <StatusBar style={statusBarStyle()} />
         <KeyboardAwareScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
           <View style={[s.header, { alignItems: 'flex-start' }]}>
             <Pressable onPress={() => closeStep(() => setShowProof(false))} hitSlop={12} accessibilityLabel="Back" style={{ marginTop: 2 }}>
@@ -201,8 +201,8 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
                 <Text style={{ color: c.success, fontSize: 14, fontWeight: '600' }}>Photo added{delivery.proof?.capturedAt ? ` · ${timeOnly(delivery.proof.capturedAt)}` : ''}</Text>
               </View>
               <Pressable onPress={() => void capturePhoto(true)} disabled={!!busy} style={({ pressed }) => [s.retake, pressed && { opacity: 0.85 }]}>
-                {busy === 'photo' ? <ActivityIndicator color="#fff" /> : <Ionicons name="refresh" size={18} color="#fff" />}
-                <Text style={{ color: '#fff', fontSize: 15, fontWeight: '600' }}>Retake</Text>
+                {busy === 'photo' ? <ActivityIndicator color={c.onInk} /> : <Ionicons name="refresh" size={18} color={c.onInk} />}
+                <Text style={{ color: c.onInk, fontSize: 15, fontWeight: '600' }}>Retake</Text>
               </Pressable>
             </View>
           ) : (
@@ -247,7 +247,7 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
     const ready = !!reason && !(reason === 'other' && !failNote.trim());
     return (
       <Screen style={{ backgroundColor: c.background }}>
-        <StatusBar style="dark" />
+        <StatusBar style={statusBarStyle()} />
         <KeyboardAwareScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
           <View style={s.header}>
             <Pressable onPress={() => closeStep(() => setShowFail(false))} hitSlop={12} accessibilityLabel="Close">
@@ -294,7 +294,7 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <KeyboardAwareScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: open ? 120 : 32 }}>
         <View style={s.header}>
           <Pressable onPress={goBack} hitSlop={12} accessibilityLabel="Back">
@@ -409,7 +409,7 @@ function NoteField({ value, onChangeText, placeholder, short }: { value: string;
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   header: { flexDirection: 'row', alignItems: 'center' },
   title: { color: c.text, fontSize: 24, fontWeight: '700' },
   map: { height: 150, borderRadius: 20, overflow: 'hidden', marginTop: 24 },
@@ -443,13 +443,13 @@ const s = StyleSheet.create({
   radio: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: c.placeholder, alignItems: 'center', justifyContent: 'center' },
   radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: c.ink },
   label: { color: c.textLabel, fontSize: 15, fontWeight: '500', marginTop: 28, marginBottom: 10 },
-  takePhoto: { alignItems: 'center', justifyContent: 'center', height: 200, borderRadius: 20, borderWidth: 2, borderStyle: 'dashed', borderColor: c.border, backgroundColor: '#FAFAFA' },
+  takePhoto: { alignItems: 'center', justifyContent: 'center', height: 200, borderRadius: 20, borderWidth: 2, borderStyle: 'dashed', borderColor: c.border, backgroundColor: c.soft },
   takeIcon: { width: 56, height: 56, borderRadius: 28, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center' },
   proofPhoto: { height: 200, borderRadius: 20, overflow: 'hidden', backgroundColor: c.soft },
   photoChip: { position: 'absolute', left: 12, bottom: 12, flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 999, backgroundColor: c.surface },
   retake: { position: 'absolute', right: 12, bottom: 10, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 10, borderRadius: 999, backgroundColor: c.ink },
   sigHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 28, marginBottom: 10 },
-  signature: { height: 140, borderRadius: lr.field, borderWidth: 1, borderColor: c.border, backgroundColor: '#FAFAFA', alignItems: 'center', justifyContent: 'center' },
+  signature: { height: 140, borderRadius: lr.field, borderWidth: 1, borderColor: c.border, backgroundColor: c.soft, alignItems: 'center', justifyContent: 'center' },
   sigLine: { position: 'absolute', left: 20, right: 20, bottom: 28, height: 1, backgroundColor: c.border },
   note: { minHeight: 96, borderRadius: lr.field, borderWidth: 1, borderColor: c.border, paddingHorizontal: 16, paddingVertical: 14, color: c.text, fontSize: 16 },
-});
+}));

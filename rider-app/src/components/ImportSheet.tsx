@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
@@ -13,7 +13,7 @@ import { checkAddress, checkAddresses } from '../lib/stops';
 import { checkRow, ISSUE_LABEL, lookupText, type Accepted, type AddressCheck, type ImportIssue } from '../lib/importCheck';
 import type { NewStop } from '../lib/v2api';
 import type { Delivery, ImportDraft } from '../lib/types';
-import { light as c, lightRadius as lr } from '../lib/theme';
+import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/theme';
 
 type Point = { latitude: number; longitude: number };
 
@@ -245,7 +245,7 @@ function ImportBody({ date, stops, near, onClose, onImported }: Omit<Props, 'vis
 
   return (
     <View style={{ flex: 1, backgroundColor: c.background, paddingTop: insets.top + 8 }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <View style={s.header}>
         <Pressable onPress={onClose} hitSlop={12} accessibilityLabel="Close"><Ionicons name="arrow-back" size={26} color={c.text} /></Pressable>
         <Text style={s.title}>Import stops</Text>
@@ -383,7 +383,7 @@ const ProblemCard = memo(function ProblemCard({ p, onEdit, onRecheck, onAccept }
   );
 });
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   header: { flexDirection: 'row', alignItems: 'center', gap: 18, paddingHorizontal: 24, paddingBottom: 16 },
   title: { color: c.text, fontSize: 24, fontWeight: '700' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
@@ -401,4 +401,4 @@ const s = StyleSheet.create({
   action: { flex: 1, minHeight: 46 },
   link: { color: c.link, fontSize: 14, fontWeight: '600' },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 24, paddingTop: 12, backgroundColor: c.background, borderTopWidth: 1, borderTopColor: c.border },
-});
+}));

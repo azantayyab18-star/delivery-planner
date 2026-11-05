@@ -1,5 +1,5 @@
 import { useEffect, useState, type ComponentType } from 'react';
-import { Linking, Platform, StyleSheet, Text, View } from 'react-native';
+import { Linking, Platform, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -7,7 +7,7 @@ import { get } from '../lib/api';
 import { updateNeeded } from '../lib/appVersion';
 import type { PublicConfig } from '../lib/types';
 import { LightButton } from './LightKit';
-import { light as c } from '../lib/theme';
+import { light as c, themed } from '../lib/theme';
 
 type Need = { level: 'required' | 'suggested'; storeUrl: string | null };
 
@@ -62,11 +62,11 @@ function UpdateScreen({ need, onLater }: { need: Need; onLater?: () => void }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   screen: { flex: 1, backgroundColor: c.background, paddingHorizontal: 24, paddingBottom: 24 },
   body: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   mark: { width: 96, height: 96, borderRadius: 48, backgroundColor: c.soft, alignItems: 'center', justifyContent: 'center', marginBottom: 24 },
   title: { color: c.text, fontSize: 24, fontWeight: '700', textAlign: 'center' },
   text: { color: c.textSecondary, fontSize: 16, lineHeight: 22, textAlign: 'center', marginTop: 12 },
   hint: { color: c.textSecondary, fontSize: 15, textAlign: 'center' },
-});
+}));

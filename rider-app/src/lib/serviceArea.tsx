@@ -8,7 +8,7 @@ import { TEST_LOCATION } from './location';
 import { useAuth } from './auth';
 import type { ServiceArea } from './types';
 import { newPlaceSession, pickPlace, searchPlaces, type PlaceSuggestion } from './places';
-import { light as c, lightRadius as lr } from './theme';
+import { light as c, lightRadius as lr, themed } from './theme';
 import { LightButton } from '../components/LightKit';
 import ConfirmMap from '../components/scan/ConfirmMap';
 
@@ -260,7 +260,7 @@ function AreaPicker({ detected, point, current, saving, onConfirm }: {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   backdrop: { flex: 1, backgroundColor: 'rgba(24,24,27,0.45)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: c.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingTop: 10, paddingBottom: 28, maxHeight: '88%' },
   grabber: { alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: c.track, marginBottom: 20 },
@@ -279,4 +279,4 @@ const s = StyleSheet.create({
   rowTitle: { color: c.text, fontSize: 17, fontWeight: '500' },
   rowSub: { color: c.textSecondary, fontSize: 14, marginTop: 2 },
   footer: { marginTop: 16, paddingTop: 12, borderTopWidth: 1, borderTopColor: c.border },
-});
+}));

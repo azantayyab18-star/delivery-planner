@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { Screen } from '../components/Kit';
@@ -10,7 +10,7 @@ import { fromDayKey, stopCardText, stopLabel, timeOnly } from '../lib/format';
 import type { Route } from '../lib/types';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
-import { light as c } from '../lib/theme';
+import { light as c, themed, statusBarStyle } from '../lib/theme';
 
 /** A finished route from History (design_pref "Route detail"): its map, totals and every stop with the time it was done. */
 export default function RouteDetail({ id }: { id: string }) {
@@ -39,7 +39,7 @@ export default function RouteDetail({ id }: { id: string }) {
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 32 }}>
         <View style={s.header}>
           <Pressable onPress={goBack} hitSlop={12} accessibilityLabel="Back" style={{ marginTop: 3 }}>
@@ -113,7 +113,7 @@ function Stat({ value, unit, label, color = c.text }: { value: string; unit?: st
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   header: { flexDirection: 'row', alignItems: 'flex-start' },
   title: { color: c.text, fontSize: 26, fontWeight: '700' },
   date: { color: c.textSecondary, fontSize: 16, marginTop: 4 },
@@ -130,4 +130,4 @@ const s = StyleSheet.create({
   address: { color: c.textSecondary, fontSize: 15, lineHeight: 21, marginTop: 4 },
   time: { color: c.textLabel, fontSize: 15, marginRight: 10, marginTop: 4 },
   mark: { width: 30, height: 30, borderRadius: 15, alignItems: 'center', justifyContent: 'center' },
-});
+}));

@@ -1,5 +1,5 @@
 import { useCallback, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
@@ -9,7 +9,7 @@ import { money, titleCase, shortDate } from '../lib/format';
 import { loadStoreConfig, mockEvent, openStoreSubscriptions, pickStore, PREMIUM_NAME, PREMIUM_PLAN_KEY, STORE_LABEL, trialAdjective, trialLabel, type MockEvent } from '../lib/billing';
 import { Screen } from '../components/Kit';
 import { LightButton, LightError, LightPill, LightProgress, type LightTone } from '../components/LightKit';
-import { light as c } from '../lib/theme';
+import { light as c, themed } from '../lib/theme';
 
 type McName = ComponentProps<typeof MaterialCommunityIcons>['name'];
 
@@ -270,7 +270,7 @@ function ManualPremium({ info, busy, onRequest }: { info: SubscriptionInfo; busy
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   body: { paddingHorizontal: 24, paddingTop: 16, paddingBottom: 32, gap: 14 },
   title: { color: c.text, fontSize: 32, fontWeight: '800', letterSpacing: -0.5, marginTop: 8 },
   subtitle: { color: c.textSecondary, fontSize: 15, marginTop: -8, marginBottom: 4 },
@@ -286,4 +286,4 @@ const s = StyleSheet.create({
   info: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: 14, backgroundColor: c.linkBg },
   chip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, backgroundColor: c.soft, borderWidth: 1, borderColor: c.border },
   chipText: { color: c.text, fontSize: 13, fontWeight: '600' },
-});
+}));

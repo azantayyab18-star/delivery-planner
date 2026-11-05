@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { DARK_ON_PRIMARY } from './Premium';
 import { fromDayKey, toDayKey, todayKey } from '../lib/format';
-import { light, premium as c, premiumRadius as r } from '../lib/theme';
+import { light, premium as c, premiumRadius as r, themed } from '../lib/theme';
 
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -63,7 +63,7 @@ export default function DatePicker({ value, onChange, min = todayKey(), light: i
   );
 }
 
-const darkStyles = StyleSheet.create({
+const darkStyles = themed(() => ({
   box: { marginTop: 10, padding: 12, borderRadius: r.medium, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
   arrow: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: c.surfaceSoft },
@@ -74,9 +74,9 @@ const darkStyles = StyleSheet.create({
   day: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   today: { borderWidth: 1, borderColor: c.primary },
   dayOn: { backgroundColor: c.primary, borderColor: c.primary },
-});
+}));
 
-const lightStyles = StyleSheet.create({
+const lightStyles = themed(() => ({
   ...darkStyles,
   box: { marginTop: 10, padding: 12, borderRadius: 16, backgroundColor: light.surface, borderWidth: 1, borderColor: light.border },
   arrow: { width: 32, height: 32, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: light.soft },
@@ -84,4 +84,4 @@ const lightStyles = StyleSheet.create({
   weekday: { color: light.textSecondary, fontSize: 11, fontWeight: '600', paddingVertical: 6 },
   today: { borderWidth: 1, borderColor: light.link },
   dayOn: { backgroundColor: light.ink, borderColor: light.ink },
-});
+}));

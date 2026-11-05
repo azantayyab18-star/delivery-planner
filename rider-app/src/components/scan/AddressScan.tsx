@@ -5,7 +5,7 @@ import { PhotoRecognizer } from 'react-native-vision-camera-ocr-plus';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { containFit, photoLines, pickAddress, type PhotoLine, type PickedAddress } from '../../lib/scan/photoLines';
-import { premium as c, premiumRadius as r } from '../../lib/theme';
+import { premium as c, premiumRadius as r, themed } from '../../lib/theme';
 import { PButton } from '../Premium';
 
 // Photo settings must be constants: a new object makes the camera set its session up again. 1440 × 1920 is sharp
@@ -157,7 +157,7 @@ export default function AddressScan({ onPicked, onTypeInstead, onClose, modeSwit
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   center: { alignItems: 'center', justifyContent: 'center' },
   top: { position: 'absolute', left: 0, right: 0, top: 0, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 16, paddingBottom: 12, backgroundColor: 'rgba(5,11,24,0.55)' },
   title: { flex: 1, color: '#fff', fontSize: 18, fontWeight: '800' },
@@ -171,4 +171,4 @@ const s = StyleSheet.create({
   shutter: { alignSelf: 'center', width: 74, height: 74, borderRadius: 37, borderWidth: 4, borderColor: '#fff', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.25)' },
   shutterInner: { width: 56, height: 56, borderRadius: 28, backgroundColor: '#fff' },
   link: { color: '#fff', fontWeight: '800', fontSize: 14, textAlign: 'center' },
-});
+}));

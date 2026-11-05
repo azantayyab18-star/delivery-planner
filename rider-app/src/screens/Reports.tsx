@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Linking, Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '../lib/useFocusEffect';
@@ -8,7 +8,7 @@ import type { HistoryDay, ReportRow, Route } from '../lib/types';
 import { dayKey, fromDayKey, shortDate, toDayKey, todayKey } from '../lib/format';
 import { Screen } from '../components/Kit';
 import { LightButton, LightError } from '../components/LightKit';
-import { light as c, lightRadius as lr } from '../lib/theme';
+import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/theme';
 
 type Period = 'week' | 'month';
 type Bar = { key: string; label: string; value: number };
@@ -104,7 +104,7 @@ export default function Reports() {
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <ScrollView
         contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 32 }}
         refreshControl={<RefreshControl tintColor={c.ink} colors={[c.ink]} refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
@@ -184,7 +184,7 @@ function Stat({ value, unit, label }: { value: string; unit?: string; label: str
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   title: { color: c.text, fontSize: 32, fontWeight: '800', letterSpacing: -0.5 },
   segment: { flexDirection: 'row', padding: 4, borderRadius: 16, backgroundColor: c.soft, marginTop: 18, marginBottom: 8 },
   segItem: { flex: 1, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
@@ -209,4 +209,4 @@ const s = StyleSheet.create({
   dateText: { flex: 1, textAlign: 'center', color: c.text, fontSize: 16, fontWeight: '600' },
   reportRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, marginTop: 4 },
   divider: { borderTopWidth: 1, borderTopColor: c.border },
-});
+}));

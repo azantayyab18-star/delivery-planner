@@ -1,18 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Animated, Image, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import { ActivityIndicator, Animated, Image, Pressable, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useRevealOnFocus } from './KeyboardAware';
-import { light as c, lightRadius as r } from '../lib/theme';
+import { light as c, lightRadius as r, themed } from '../lib/theme';
 
 // Shared building blocks for the light design_pref screens (auth, Home).
+
+// The app icon (assets/brand/make_brand.py), the same in light and dark mode.
+const APP_ICON = require('../../assets/brand/app-icon.png');
 
 export function LightBrand({ name = 'Routify' }: { name?: string }) {
   return (
     <View style={s.brand}>
-      <View style={s.mark}>
-        <MaterialCommunityIcons name="vector-curve" size={20} color={c.onInk} />
-        <View style={s.markDot} />
-      </View>
+      <Image source={APP_ICON} style={s.mark} accessibilityIgnoresInvertColors />
       <Text style={s.brandName}>{name}</Text>
     </View>
   );
@@ -60,9 +60,10 @@ export function LightButton({ title, onPress, variant = 'solid', icon, loading, 
 // Rendered from design_pref/Vector.svg; the app has no SVG support.
 const GOOGLE_G = require('../../assets/brand/google-g.png');
 
-/** Disabled until Google sign-in exists. MISSING: see missing.md */
-export function GoogleButton({ style }: { style?: ViewStyle }) {
-  return <LightButton title="Continue with Google" variant="outline" icon={<Image source={GOOGLE_G} style={{ width: 20, height: 20 }} resizeMode="contain" />} onPress={() => {}} disabled style={style} />;
+/** "Continue with Google" in Google's own look: outlined, with the multicolour G. */
+export function GoogleButton({ onPress, loading, disabled, style }: { onPress: () => void; loading?: boolean; disabled?: boolean; style?: ViewStyle }) {
+  return <LightButton title="Continue with Google" variant="outline" icon={<Image source={GOOGLE_G} style={{ width: 20, height: 20 }} resizeMode="contain" />}
+    onPress={onPress} loading={loading} disabled={disabled} style={style} />;
 }
 
 export function LightDivider({ text = 'or' }: { text?: string }) {
@@ -115,10 +116,9 @@ export function LightError({ text }: { text: string }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   brand: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  mark: { width: 32, height: 32, borderRadius: r.mark, backgroundColor: c.ink, alignItems: 'center', justifyContent: 'center' },
-  markDot: { position: 'absolute', top: 6, right: 6, width: 6, height: 6, borderRadius: 3, backgroundColor: c.accentDot },
+  mark: { width: 36, height: 36, borderRadius: 9 },
   brandName: { color: c.text, fontSize: 18, fontWeight: '700' },
 
   label: { color: c.textLabel, fontSize: 14, fontWeight: '500', marginBottom: 8 },
@@ -137,5 +137,5 @@ const s = StyleSheet.create({
   pill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 999 },
   track: { height: 6, backgroundColor: c.track, borderRadius: 99, overflow: 'hidden' },
 
-  error: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FEF2F2', borderRadius: 12, padding: 12, marginBottom: 16 },
-});
+  error: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: c.dangerBg, borderRadius: 12, padding: 12, marginBottom: 16 },
+}));

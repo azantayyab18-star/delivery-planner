@@ -1,8 +1,8 @@
-import { ActivityIndicator, Animated, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Animated, Pressable, Text, TextInput, View, type TextInputProps, type ViewStyle } from 'react-native';
 import { useRevealOnFocus } from './KeyboardAware';
 import { iosNoAutofill } from '../lib/inputs';
 import { useEffect, useState } from 'react';
-import { colors, radius, spacing } from '../lib/theme';
+import { colors, radius, spacing, themed } from '../lib/theme';
 
 export function Screen({ children, style }: { children: React.ReactNode; style?: ViewStyle }) {
   const [opacity] = useState(() => new Animated.Value(0));
@@ -57,7 +57,7 @@ export function EmptyState({ title, subtitle }: { title: string; subtitle?: stri
   return <View style={{ padding: spacing(10), alignItems: 'center' }}><Text style={{ fontSize: 15, fontWeight: '700', color: colors.text, marginBottom: 4 }}>{title}</Text>{subtitle ? <Text style={{ fontSize: 13, color: colors.muted, textAlign: 'center' }}>{subtitle}</Text> : null}</View>;
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing(4), borderWidth: 1, borderColor: colors.border, elevation: 4, shadowColor: '#000', shadowOpacity: 0.22, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } },
   btn: { minHeight: 52, paddingHorizontal: spacing(5), paddingVertical: 13, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
   btn_primary: { backgroundColor: colors.primary, shadowColor: colors.primary, shadowOpacity: 0.32, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 4 }, btn_secondary: { backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: '#4B3BA6' },
@@ -70,4 +70,4 @@ const s = StyleSheet.create({
   inputError: { borderColor: colors.red },
   errorText: { color: colors.red, fontSize: 12, marginTop: 4 },
   banner: { padding: 14, borderRadius: radius.md, marginBottom: spacing(3), borderWidth: 1, borderColor: colors.border },
-});
+}));

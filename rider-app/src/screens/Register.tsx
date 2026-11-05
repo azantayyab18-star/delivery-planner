@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from '../components/KeyboardAware';
 import { useAuth } from '../lib/auth';
 import { ApiRequestError, get } from '../lib/api';
 import type { PublicConfig } from '../lib/types';
 import { StatusBar } from 'expo-status-bar';
 import { Screen } from '../components/Kit';
-import { GoogleButton, LightBrand, LightButton, LightDivider, LightError, LightField } from '../components/LightKit';
-import { light as c } from '../lib/theme';
+import { LightBrand, LightButton, LightError, LightField } from '../components/LightKit';
+import SocialSignIn from '../components/SocialSignIn';
+import { light as c, themed, statusBarStyle } from '../lib/theme';
 
 export default function Register({ onGoLogin }: { onGoLogin: () => void }) {
   const { register } = useAuth();
@@ -34,7 +35,7 @@ export default function Register({ onGoLogin }: { onGoLogin: () => void }) {
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-        <StatusBar style="dark" />
+        <StatusBar style={statusBarStyle()} />
         <KeyboardAwareScrollView contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 64, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
           <LightBrand name={config?.platformName || 'Routify'} />
           <Text style={s.title}>Create your account</Text>
@@ -50,9 +51,8 @@ export default function Register({ onGoLogin }: { onGoLogin: () => void }) {
           </View>
 
           <LightButton title="Create account" onPress={submit} loading={busy} disabled={!form.fullName || !form.email || !form.password} style={{ marginTop: 28 }} />
-          <LightDivider />
-          {/* MISSING: see missing.md — there is no Google sign-in in the app or API yet. */}
-          <GoogleButton />
+          {/* Continue with Google (Android) / Sign in with Apple (iPhone). */}
+          <SocialSignIn onError={setError} />
 
           <Pressable onPress={onGoLogin} style={{ alignItems: 'center', marginTop: 'auto', paddingTop: 40, paddingBottom: 8 }}>
             <Text style={{ color: c.textSecondary, fontSize: 15 }}>Already have an account?  <Text style={{ color: c.link, fontWeight: '600' }}>Sign in</Text></Text>
@@ -62,7 +62,7 @@ export default function Register({ onGoLogin }: { onGoLogin: () => void }) {
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   title: { color: c.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.6, marginTop: 44, marginBottom: 8 },
   subtitle: { color: c.textSecondary, fontSize: 16, lineHeight: 22, marginBottom: 32 },
-});
+}));

@@ -10,6 +10,8 @@ type RegisterInput = { fullName: string; email: string; password: string; confir
 type AuthContextValue = AuthState & {
   login: (email: string, password: string) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
+  /** Continue with Google / Sign in with Apple: the provider's ID token, exchanged for our session. */
+  socialSignIn: (provider: 'google' | 'apple', idToken: string, fullName?: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
 };
@@ -78,6 +80,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ user: result.data.user, loading: false });
   }, []);
 
+  const socialSignIn = useCallback(async (provider: 'google' | 'apple', idToken: string, fullName?: string) => {
+    const result = await post<{ user: User; accessToken: string; refreshToken: string }>(`/auth/${provider}`, { idToken, ...(fullName ? { fullName } : {}) });
+    await setTokens({ accessToken: result.data.accessToken, refreshToken: result.data.refreshToken });
+    void saveProfile(result.data.user);
+    setState({ user: result.data.user, loading: false });
+  }, []);
+
   const userId = state.user?.id;
   const logout = useCallback(async () => {
     if (userId && !(await confirmUnsynced(userId))) return;
@@ -88,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setState({ user: null, loading: false });
   }, [userId]);
 
-  const value = useMemo(() => ({ ...state, login, register, logout, refreshProfile: loadProfile }), [state, login, register, logout, loadProfile]);
+  const value = useMemo(() => ({ ...state, login, register, socialSignIn, logout, refreshProfile: loadProfile }), [state, login, register, socialSignIn, logout, loadProfile]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

@@ -12,6 +12,8 @@ export type V2Stop = {
 export type V2RouteSummary = Pick<Route, 'id' | 'status' | 'progress' | 'summary'> & { nextStopId: string | null };
 export type V2Route = V2RouteSummary & Pick<Route, 'name' | 'serviceDate' | 'preference' | 'optimization' | 'origin' | 'distanceKm' | 'durationMin'> & {
   stops: V2Stop[];
+  /** Missing from servers older than the bike/van choice: those routes were planned for a bike. */
+  vehicle?: Route['vehicle'];
 };
 export type V2Home = {
   rider: { fullName: string }; date: string;
@@ -49,7 +51,7 @@ export function toDelivery(stop: V2Stop, where: { serviceDate: string; routeId: 
 /** A v2 route as the app's Route. `etag` rides along so the next load can ask "changed since?". */
 export function toRoute(route: V2Route, etag?: string | null): Route & { etag?: string } {
   return {
-    id: route.id, name: route.name, status: route.status, preference: route.preference, serviceDate: route.serviceDate,
+    id: route.id, name: route.name, status: route.status, preference: route.preference, vehicle: route.vehicle ?? 'bike', serviceDate: route.serviceDate,
     origin: route.origin, distanceKm: route.distanceKm, durationMin: route.durationMin,
     startedAt: null, completedAt: null,
     stops: route.stops.map((stop, i) => ({

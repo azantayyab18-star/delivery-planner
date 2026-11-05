@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Animated, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, type DimensionValue } from 'react-native';
+import { ActivityIndicator, Animated, Image, Pressable, RefreshControl, ScrollView, Text, View, type DimensionValue } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { post, ApiRequestError } from '../lib/api';
 import { useHome, type HomeData } from '../lib/queries';
@@ -13,7 +13,7 @@ import PlanNudge from '../components/PlanNudge';
 import SyncStatus from '../components/SyncStatus';
 import { useSyncLoop } from '../lib/outbox';
 import { useAuth } from '../lib/auth';
-import { light as c } from '../lib/theme';
+import { light as c, themed } from '../lib/theme';
 import { useNav } from '../lib/nav';
 
 function greeting() {
@@ -258,7 +258,7 @@ function EmptyBox() {
   return <Image source={EMPTY_ROUTE} style={{ width: 168, height: 128 }} resizeMode="contain" accessibilityElementsHidden importantForAccessibility="no" />;
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
   avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.linkBg, alignItems: 'center', justifyContent: 'center' },
   avatarText: { color: c.link, fontSize: 17, fontWeight: '600' },
@@ -282,7 +282,7 @@ const s = StyleSheet.create({
   errorState: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 24 },
   errorCircle: { width: 200, height: 200, borderRadius: 100, backgroundColor: c.dangerBg, alignItems: 'center', justifyContent: 'center' },
   errorMark: { position: 'absolute', top: 76, color: c.danger, fontSize: 34, fontWeight: '800' },
-  offlineBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: '#FEF3C7' },
+  offlineBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 24, paddingVertical: 12, backgroundColor: c.warningBg },
   offlineText: { color: c.warning, fontSize: 15, fontWeight: '600', flex: 1 },
   synced: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20 },
   bone: { backgroundColor: c.soft, borderRadius: 8 },
@@ -292,4 +292,4 @@ const s = StyleSheet.create({
   unfinished: { borderWidth: 1.5, borderColor: c.danger, backgroundColor: c.dangerBg },
   nextIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: c.linkBg, alignItems: 'center', justifyContent: 'center' },
   nextTitle: { color: c.text, fontSize: 15, fontWeight: '600' },
-});
+}));

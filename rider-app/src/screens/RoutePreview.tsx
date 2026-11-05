@@ -1,22 +1,24 @@
-import { memo, useCallback, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback, useEffect, useState, type ComponentProps } from 'react';
+import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { Screen } from '../components/Kit';
 import { type McName } from '../components/Premium';
 import { LightButton, LightError } from '../components/LightKit';
+import StartPointSheet, { type StartPoint } from '../components/StartPointSheet';
 import { get, postPlan, ApiRequestError } from '../lib/api';
 import { fetchRoute } from '../lib/v2api';
 import { getRouteOrigin } from '../lib/location';
 import { dayLabel, formatMinutes, stopCardText } from '../lib/format';
 import { STATUS as STOP_STATUS } from './DeliveryDetail';
 import { forgetRouteName } from '../lib/routeNames';
-import type { Delivery, Route, RoutePreference } from '../lib/types';
+import type { Delivery, Route, RoutePreference, Vehicle } from '../lib/types';
+import { lastVehicle, rememberVehicle, VEHICLES } from '../lib/vehicle';
 import { useAuth } from '../lib/auth';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
-import { light as c, lightRadius as lr } from '../lib/theme';
+import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/theme';
 
 export const ROUTE_TYPES: { key: RoutePreference; title: string; text: string; icon: McName }[] = [
   { key: 'smart', title: 'Smartest', text: 'Least total driving time. Stops at the same address are done together.', icon: 'lightbulb-on-outline' },
@@ -43,9 +45,25 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
   const [route, setRoute] = useState<Route | null>(null);
   const [reordering, setReordering] = useState(false);
   const existing = !!routeId;
+  // Bike or van: asked each time a route is planned (the last choice is ticked), and shown on a planned route.
+  const [vehicle, setVehicle] = useState<Vehicle>('bike');
+  const [askVehicle, setAskVehicle] = useState(false);
+  // Where the route starts: chosen by the rider at the top before planning (never assumed). `askStart` holds why the
+  // picker opened (empty: opened by the rider); after a pick from Preview route, planning carries on.
+  const [start, setStart] = useState<StartPoint | null>(null);
+  const [askStart, setAskStart] = useState<string | null>(null);
+  const [continuePlan, setContinuePlan] = useState(false);
+  useEffect(() => { if (!routeId) void lastVehicle().then(setVehicle); }, [routeId]);
+
+  // Planning needs a plan (or its free trial): the server says so, and the paywall opens instead of an error.
+  const paywall = (err: unknown) => {
+    if (!(err instanceof ApiRequestError) || (err.code !== 'SUBSCRIPTION_REQUIRED' && err.code !== 'SUBSCRIPTION_EXPIRED')) return false;
+    navigate('Paywall');
+    return true;
+  };
 
   const openStop = useCallback((d: Delivery) => navigate('DeliveryDetail', { id: d.id }), [navigate]);
-  const showRoute = (r: Route) => { setRoute(r); setStops(r.stops.map((stop) => stop.delivery)); setPreference(r.preference); };
+  const showRoute = (r: Route) => { setRoute(r); setStops(r.stops.map((stop) => stop.delivery)); setPreference(r.preference); if (r.vehicle) setVehicle(r.vehicle); };
 
   useFocusEffect(useCallback(() => {
     if (!currentId) return;
@@ -74,19 +92,30 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
     })();
   }, [existing, ids, date]));
 
+  // The start point's coordinates: the typed place, or the phone's position now. Null (with the picker reopened) when
+  // the phone cannot tell where it is.
+  const originOf = async (point: StartPoint | null) => {
+    if (point?.kind === 'place') return { latitude: point.latitude, longitude: point.longitude };
+    if (!point && route?.origin) return route.origin;
+    const here = await getRouteOrigin();
+    if (!here) setAskStart('Your location is not available. Type the starting address instead.');
+    return here;
+  };
+
   // Existing planned route, another route type picked: plan the same stops again that way (the route is replaced).
-  const replan = async (key: RoutePreference) => {
+  const replan = async (key: RoutePreference, by: Vehicle = vehicle, from: StartPoint | null = start) => {
     if (!route) return;
     setReordering(true);
     setError('');
     try {
-      const origin = await getRouteOrigin();
+      const origin = await originOf(from);
+      if (!origin) return;
       const open = route.stops.filter((stop) => stop.delivery.status === 'pending').map((stop) => stop.delivery.id);
-      const built = await postPlan<Route>('/routes/build', { name: route.name, date: route.serviceDate, preference: key, deliveryIds: open, ...(origin ? { origin } : {}) });
+      const built = await postPlan<Route>('/routes/build', { name: route.name, date: route.serviceDate, preference: key, vehicle: by, deliveryIds: open, ...(origin ? { origin } : {}) });
       showRoute(built.data);
       setCurrentId(built.data.id);
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : 'Could not re-plan the route. Check your connection and try again.');
+      if (!paywall(err)) setError(err instanceof ApiRequestError ? err.message : 'Could not re-plan the route. Check your connection and try again.');
     } finally {
       setReordering(false);
     }
@@ -101,25 +130,29 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
       const origin = await getRouteOrigin();
       showRoute((await postPlan<Route>(`/routes/${route.id}/optimize`, origin ? { origin } : {})).data);
     } catch (err) {
-      setError(err instanceof ApiRequestError ? err.message : 'Could not optimise the route');
+      if (!paywall(err)) setError(err instanceof ApiRequestError ? err.message : 'Could not optimise the route');
     } finally {
       setReordering(false);
     }
   };
 
-  const plan = async () => {
+  const plan = async (by: Vehicle) => {
     if (!name || !date) return;
     if (!stops?.length) return;
+    setAskVehicle(false);
+    setVehicle(by);
+    rememberVehicle(by);
     setPlanning(true);
     setError('');
     try {
-      const origin = await getRouteOrigin();
-      const built = await postPlan<Route>('/routes/build', { name, date, preference, deliveryIds: stops.map((d) => d.id), ...(origin ? { origin } : {}) });
+      const origin = await originOf(start);
+      if (!origin) return;
+      const built = await postPlan<Route>('/routes/build', { name, date, preference, vehicle: by, deliveryIds: stops.map((d) => d.id), ...(origin ? { origin } : {}) });
       void forgetRouteName(date);
       // The map drops the numbered pins in route order. Back from there returns Home, not to this form.
       resetTo('RouteMapScreen', { reveal: true, routeId: built.data.id });
     } catch (err) {
-      setError(err instanceof ApiRequestError
+      if (!paywall(err)) setError(err instanceof ApiRequestError
         ? err.code === 'ROUTE_ACTIVE' ? 'Finish your current route first. Your new stops are saved and will be here.' : err.message
         : 'Could not plan the route. Check your connection and try again.');
     } finally {
@@ -140,13 +173,34 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
     setTypes(false);
     if (existing) { if (key !== preference) void replan(key); } else setPreference(key);
   };
+  // A planned route driven with the other vehicle: its roads and order change, so it is planned again.
+  const pickVehicle = (v: Vehicle) => {
+    setTypes(false);
+    if (v === vehicle) return;
+    rememberVehicle(v);
+    if (existing) void replan(preference, v); else setVehicle(v);
+  };
+  const vehicleInfo = VEHICLES.find((v) => v.key === vehicle) || VEHICLES[0];
+  // Preview route: the start point first (asked for when not chosen), then the vehicle, then planning.
+  const onPreview = () => {
+    if (!start) { setContinuePlan(true); setAskStart('Choose where the route starts before it is planned.'); return; }
+    setAskVehicle(true);
+  };
+  const pickStart = (point: StartPoint) => {
+    setAskStart(null);
+    setStart(point);
+    if (existing) { void replan(preference, vehicle, point); return; }
+    if (continuePlan) { setContinuePlan(false); setAskVehicle(true); }
+  };
+  // Changing the start of a planned route plans it again from there; a running route keeps its order (Optimise re-orders from the rider).
+  const canChangeStart = !existing || route?.status === 'planned';
 
   // Rows only change with these, so the list redraws a row only when it must.
   const rowMode: RowMode = existing ? (finished ? 'open-finished' : 'open') : 'draft';
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <FlashList
         data={stops}
         keyExtractor={(d) => d.id}
@@ -163,9 +217,23 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
             {/* Before planning, distance and time aren't known yet. MISSING: see missing.md */}
             <Text style={s.stats}>{stops.length} stop{stops.length === 1 ? '' : 's'} · approx {km} · {time}</Text>
             {/* Not in the design; kept so the rider can see which route and day these stops go to. */}
-            <Text style={s.context} numberOfLines={1}>{routeName}{routeDate ? ` · ${dayLabel(routeDate)}` : ''}{route ? ` · ${ROUTE_STATE[route.status]}` : ''}</Text>
+            <Text style={s.context} numberOfLines={1}>{routeName}{routeDate ? ` · ${dayLabel(routeDate)}` : ''}{route ? ` · ${ROUTE_STATE[route.status]} · ${vehicleInfo.title}` : ''}</Text>
           </View>
         </View>
+
+        {canChangeStart ? (
+          <Pressable onPress={() => setAskStart('')} disabled={reordering || planning} style={({ pressed }) => [s.start, !start && !existing && s.startMissing, pressed && { opacity: 0.85 }]}
+            accessibilityRole="button" accessibilityLabel="Starting point">
+            <MaterialCommunityIcons name={start?.kind === 'place' ? 'map-marker-outline' : 'crosshairs-gps'} size={22} color={start || existing ? c.link : c.warning} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.startLabel}>STARTING POINT</Text>
+              <Text style={[s.startText, !start && !existing && { color: c.warning }]} numberOfLines={1}>
+                {start ? start.label : existing ? 'Where it was planned from' : 'Choose a starting point'}
+              </Text>
+            </View>
+            <Text style={s.link}>{start || existing ? 'Change' : 'Choose'}</Text>
+          </Pressable>
+        ) : null}
 
         {finished ? <View style={[s.toolbar, { paddingBottom: 0 }]} /> : (
           <View style={s.toolbar}>
@@ -192,7 +260,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
             onPress={() => { if (currentId) navigate('RouteMapScreen', { routeId: currentId }); }} disabled={!route || reordering} />
         ) : (
           <LightButton title={planning ? 'Planning your route…' : 'Preview route'} icon={<Ionicons name="map-outline" size={22} color={c.onInk} />}
-            onPress={() => void plan()} loading={planning} disabled={!stops.length} />
+            onPress={onPreview} loading={planning} disabled={!stops.length} />
         )}
       </View>
 
@@ -203,6 +271,17 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
             <View style={s.grabber} />
             <Text style={s.sheetTitle}>Optimise route</Text>
             <Text style={s.sheetSub}>{existing ? 'Choose how the stops are ordered. The route is planned again that way.' : 'Choose how the stops are ordered when the route is planned.'}</Text>
+            {route?.status !== 'active' ? (
+              <View style={s.vehicles}>
+                {VEHICLES.map((v) => (
+                  <Pressable key={v.key} onPress={() => pickVehicle(v.key)} style={({ pressed }) => [s.vehicleChip, vehicle === v.key && s.vehicleChipOn, pressed && { opacity: 0.85 }]}
+                    accessibilityRole="button" accessibilityState={{ selected: vehicle === v.key }}>
+                    <MaterialCommunityIcons name={v.icon} size={20} color={vehicle === v.key ? c.link : c.text} />
+                    <Text style={{ color: vehicle === v.key ? c.link : c.text, fontWeight: '600', fontSize: 15 }}>{v.title}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            ) : null}
             {ROUTE_TYPES.map((t) => {
               const on = preference === t.key;
               return (
@@ -213,6 +292,33 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
                     <Text style={{ color: c.textSecondary, fontSize: 14, marginTop: 2, lineHeight: 19 }}>{t.text}</Text>
                   </View>
                   <Ionicons name={on ? 'radio-button-on' : 'radio-button-off'} size={22} color={on ? c.link : c.placeholder} />
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      <StartPointSheet visible={askStart !== null} reason={askStart || undefined} onPick={pickStart} onClose={() => { setAskStart(null); setContinuePlan(false); }} />
+
+      {/* Asked before every new route: the roads, the stop order and the directions depend on it. */}
+      <Modal visible={askVehicle} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setAskVehicle(false)}>
+        <Pressable style={s.backdrop} onPress={() => setAskVehicle(false)}>
+          <Pressable style={s.sheet} onPress={() => {}}>
+            <View style={s.grabber} />
+            <Text style={s.sheetTitle}>What are you riding today?</Text>
+            <Text style={s.sheetSub}>The route is planned on the roads your vehicle can use.</Text>
+            {VEHICLES.map((v) => {
+              const on = vehicle === v.key;
+              return (
+                <Pressable key={v.key} onPress={() => void plan(v.key)} style={({ pressed }) => [s.type, on && s.typeOn, pressed && { opacity: 0.85 }]}
+                  accessibilityRole="button" accessibilityLabel={`Plan by ${v.title}`}>
+                  <MaterialCommunityIcons name={v.icon} size={26} color={on ? c.link : c.text} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ color: c.text, fontWeight: '600', fontSize: 16 }}>{v.title}</Text>
+                    <Text style={{ color: c.textSecondary, fontSize: 14, marginTop: 2, lineHeight: 19 }}>{v.text}</Text>
+                  </View>
+                  <Ionicons name="arrow-forward" size={20} color={on ? c.link : c.placeholder} />
                 </Pressable>
               );
             })}
@@ -270,7 +376,7 @@ function statusTag(d: Delivery): Tag {
   return { text, fg: c.link, bg: c.linkBg, icon: 'time-outline' };
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   header: { flexDirection: 'row', alignItems: 'flex-start' },
   title: { color: c.text, fontSize: 26, fontWeight: '700', lineHeight: 30 },
   stats: { color: c.textSecondary, fontSize: 16, marginTop: 6 },
@@ -293,4 +399,11 @@ const s = StyleSheet.create({
   sheetSub: { color: c.textSecondary, fontSize: 15, marginTop: 6, marginBottom: 16 },
   type: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, marginBottom: 10, borderRadius: lr.field, borderWidth: 1, borderColor: c.border },
   typeOn: { borderColor: c.link, backgroundColor: c.linkBg },
-});
+  vehicles: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  start: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20, padding: 14, borderRadius: lr.field, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
+  startMissing: { borderColor: c.warning, backgroundColor: c.warningBg },
+  startLabel: { color: c.textSecondary, fontSize: 12, fontWeight: '600', letterSpacing: 1.1 },
+  startText: { color: c.text, fontSize: 16, fontWeight: '600', marginTop: 2 },
+  vehicleChip: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, height: 46, borderRadius: lr.field, borderWidth: 1, borderColor: c.border },
+  vehicleChipOn: { borderColor: c.link, backgroundColor: c.linkBg },
+}));

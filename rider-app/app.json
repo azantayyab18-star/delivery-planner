@@ -13,13 +13,14 @@
     },
     "orientation": "portrait",
     "androidStatusBar": {
-      "barStyle": "light-content",
-      "backgroundColor": "#050B18"
+      "barStyle": "dark-content",
+      "backgroundColor": "#FFFFFF"
     },
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSCameraUsageDescription": "Delivery Rider uses the camera to capture proof-of-delivery photos.",
         "NSPhotoLibraryUsageDescription": "Delivery Rider needs photo library access to attach a delivery proof photo.",
@@ -32,7 +33,7 @@
     "android": {
       "package": "com.azaan890.routify",
       "adaptiveIcon": {
-        "backgroundColor": "#0A0D3A",
+        "backgroundColor": "#2563EB",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -69,13 +70,18 @@
         }
       ],
       "expo-font",
+      "expo-apple-authentication",
       [
         "expo-splash-screen",
         {
           "image": "./assets/splash-mark.png",
           "imageWidth": 96,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF"
+          "backgroundColor": "#FFFFFF",
+          "dark": {
+            "image": "./assets/splash-mark-dark.png",
+            "backgroundColor": "#0B1120"
+          }
         }
       ],
       [

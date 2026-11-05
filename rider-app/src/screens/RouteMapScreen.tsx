@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, RefreshControl, Text, View, useWindowDimensions } from 'react-native';
 import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
@@ -7,6 +7,7 @@ import { useIsFocused } from '@react-navigation/native';
 import { get, post, postPlan, ApiRequestError } from '../lib/api';
 import { decodePolyline } from '../lib/polyline';
 import { openDirections as directionsTo } from '../lib/deliveryActions';
+import { rememberVehicle } from '../lib/vehicle';
 import { dayLabel, formatMinutes, stopLabel, todayKey } from '../lib/format';
 import type { Route } from '../lib/types';
 import { StatusBar } from 'expo-status-bar';
@@ -14,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Screen } from '../components/Kit';
 import { LightButton, LightError, LightPill, type LightTone } from '../components/LightKit';
 import GoogleRouteMap, { type MapStop } from '../components/GoogleRouteMap';
-import { light as c, lightRadius as lr } from '../lib/theme';
+import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/theme';
 import { useNav } from '../lib/nav';
 import { useRouteData } from '../lib/queries';
 import SyncStatus from '../components/SyncStatus';
@@ -69,7 +70,6 @@ const REVEAL_EVERY_MS = 450;
 const REVEAL_MAX_STOPS = 30;
 // The map draws pins for the next stops only; the list below has all of them.
 const MAP_PINS = 25;
-const openDirections = (stop: Stop) => directionsTo(stop.delivery);
 
 /**
  * The rider's live position, plus `anchor`: the point the road path and re-optimisation start from.
@@ -121,6 +121,14 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
   // The saved copy of the route is drawn at once and refreshed in the background (and on every return to this screen).
   const routeQuery = useRouteData(routeId);
   const { route, setRoute } = routeQuery;
+  // Directions from this map's stop rows cycle or drive as this route's vehicle.
+  useEffect(() => { rememberVehicle(route?.vehicle); }, [route?.vehicle]);
+  // A stop's Navigate: in-app turn-by-turn (our own routing) once the route is underway; before that, the phone's maps app.
+  const routeActive = route?.status === 'active';
+  const navigateTo = useCallback((stop: Stop) => {
+    if (routeActive) navigate('LiveNavigation', { stopId: stop.delivery.id });
+    else directionsTo(stop.delivery);
+  }, [routeActive, navigate]);
   const loading = routeQuery.isPending;
   const refreshing = routeQuery.isFetching && !routeQuery.isPending;
   const [actionError, setError] = useState('');
@@ -301,13 +309,13 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
   }, [ordered, unmapped, finished, legKey]);
 
   if (loading) {
-    return <Screen style={{ backgroundColor: c.background, alignItems: 'center', justifyContent: 'center' }}><StatusBar style="dark" /><ActivityIndicator color={c.ink} /></Screen>;
+    return <Screen style={{ backgroundColor: c.background, alignItems: 'center', justifyContent: 'center' }}><StatusBar style={statusBarStyle()} /><ActivityIndicator color={c.ink} /></Screen>;
   }
 
   if (!route) {
     return (
       <Screen style={{ backgroundColor: c.background, padding: 24, justifyContent: 'center' }}>
-        <StatusBar style="dark" />
+        <StatusBar style={statusBarStyle()} />
         <LightError text={error} />
         <View style={{ alignItems: 'center' }}>
           <MaterialCommunityIcons name="map-marker-path" size={48} color={c.placeholder} />
@@ -335,7 +343,7 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
 
   return (
     <Screen style={{ backgroundColor: c.background }}>
-      <StatusBar style="dark" />
+      <StatusBar style={statusBarStyle()} />
       <View style={{ flex: 1 }}>
       <FlashList
         ref={page}
@@ -351,7 +359,7 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
             {row.type === 'start' ? <Step kind="start" title={position ? 'Your location' : 'Start point'} subtitle={position ? 'Live GPS' : 'Where the route was planned from'} isFirst />
               : row.type === 'finish' ? <Step kind="finish" title="Route complete" subtitle={`${row.left} stop${row.left === 1 ? '' : 's'} to go`} done={row.left === 0} isLast />
                 : row.type === 'section' ? <Text style={s.section}>Completed</Text>
-                  : <StopRow row={row} selected={!!row.selected || selectedId === row.key} onSelect={select} onPin={startPin} onOpen={openStop} />}
+                  : <StopRow row={row} selected={!!row.selected || selectedId === row.key} onSelect={select} onPin={startPin} onOpen={openStop} onNavigate={navigateTo} />}
           </View>
         )}
         ListFooterComponent={<View style={s.sheetEnd} />}
@@ -461,8 +469,8 @@ type StopRowData = {
 type Row = { type: 'start'; key: string } | { type: 'finish'; key: string; left: number } | { type: 'section'; key: string } | StopRowData;
 
 /** A stop's row in the stepper. Memoised: handlers are stable, so only a row whose own data changes redraws. */
-const StopRow = memo(function StopRow({ row, selected, onSelect, onPin, onOpen }: {
-  row: StopRowData; selected: boolean; onSelect: (stop: Stop) => void; onPin: (stop: Stop) => void; onOpen: (stop: Stop) => void;
+const StopRow = memo(function StopRow({ row, selected, onSelect, onPin, onOpen, onNavigate }: {
+  row: StopRowData; selected: boolean; onSelect: (stop: Stop) => void; onPin: (stop: Stop) => void; onOpen: (stop: Stop) => void; onNavigate: (stop: Stop) => void;
 }) {
   const { stop } = row;
   return (
@@ -472,7 +480,7 @@ const StopRow = memo(function StopRow({ row, selected, onSelect, onPin, onOpen }
       onPress={() => onSelect(stop)}
       onPin={row.pin ? () => onPin(stop) : undefined}
       onOpen={row.open ? () => onOpen(stop) : undefined}
-      onNavigate={row.directions ? () => openDirections(stop) : undefined}
+      onNavigate={row.directions ? () => onNavigate(stop) : undefined}
     />
   );
 });
@@ -559,10 +567,10 @@ function StepDot({ kind, order, done, last }: { kind: StepProps['kind']; order?:
 }
 
 const DOT = 26;
-const s = StyleSheet.create({
+const s = themed(() => ({
   mapEmpty: { alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: c.soft },
   muted: { color: c.textSecondary, fontSize: 14 },
-  back: { position: 'absolute', left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
+  back: { position: 'absolute', left: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOpacity: 0.12, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4 },
   sheet: { marginTop: -24, backgroundColor: c.surface, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 24, paddingTop: 10, paddingBottom: 28 },
   // The sheet's rows and its bottom padding, now that the stops are list rows under the sheet's header.
   sheetRow: { backgroundColor: c.surface, paddingHorizontal: 24 },
@@ -587,6 +595,6 @@ const s = StyleSheet.create({
   navBtn: { backgroundColor: c.ink, borderColor: c.ink },
   section: { color: c.textSecondary, fontSize: 13, fontWeight: '600', letterSpacing: 1, textTransform: 'uppercase', marginTop: 20, marginBottom: 6 },
   pinBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, marginLeft: 6, paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999, backgroundColor: c.linkBg },
-  pinBar: { position: 'absolute', left: 16, right: 16, bottom: 36, padding: 16, borderRadius: 20, backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
+  pinBar: { position: 'absolute', left: 16, right: 16, bottom: 36, padding: 16, borderRadius: 20, backgroundColor: c.surface, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 12, shadowOffset: { width: 0, height: 4 }, elevation: 6 },
   openBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 14, paddingVertical: 8, borderRadius: 999, backgroundColor: c.surface, borderWidth: 1, borderColor: c.border },
-});
+}));

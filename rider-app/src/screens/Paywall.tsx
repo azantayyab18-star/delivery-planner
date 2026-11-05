@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, ScrollView, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import type { PurchasesPackage } from 'react-native-purchases';
 import { useFocusEffect } from '../lib/useFocusEffect';
@@ -12,7 +12,7 @@ import { buy, loadStoreConfig, openStoreSubscriptions, pickStore, PREMIUM_NAME, 
 import { availableTrialDays, buyPackage, isCancelled, loadPremiumPackage, purchaseErrorMessage, restorePurchases } from '../lib/revenuecat';
 import { Screen } from '../components/Kit';
 import { LightButton, LightError, LightPill } from '../components/LightKit';
-import { light as c } from '../lib/theme';
+import { light as c, themed } from '../lib/theme';
 
 /** What the page sells, from whichever store this phone buys through. */
 type Offer = {
@@ -61,9 +61,10 @@ async function loadOffer(): Promise<Loaded> {
 }
 
 /** Routify Premium: one monthly plan with the store's free trial, on one page. Bought through Google Play / the App
- * Store via RevenueCat (the test store where RevenueCat cannot run, e.g. Expo Go). */
-export default function Paywall() {
-  const { goBack } = useNav();
+ * Store via RevenueCat (the test store where RevenueCat cannot run, e.g. Expo Go). `then`: the screen the paywall stood
+ * in front of (e.g. Add stops after naming a new route), opened in its place once the plan is active. */
+export default function Paywall({ then }: { then?: { name: string; params?: Record<string, unknown> } } = {}) {
+  const { goBack, replace } = useNav();
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState<'buy' | 'restore' | null>(null);
@@ -78,7 +79,8 @@ export default function Paywall() {
   // Home's chip and the Subscription screen read the plan from the API: refresh them, then close.
   const done = async () => {
     await queryClient.invalidateQueries({ queryKey: ['home'] });
-    goBack();
+    if (then) replace(then.name, then.params);
+    else goBack();
   };
 
   const purchase = async (offer: Offer) => {
@@ -264,7 +266,7 @@ function TestStoreSheet({ visible, offer, busy, onConfirm, onClose }: { visible:
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4 },
   close: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: c.soft },
   restore: { color: c.link, fontSize: 15, fontWeight: '600' },
@@ -299,4 +301,4 @@ const s = StyleSheet.create({
   grabber: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: c.border, marginBottom: 14 },
   sheetRow: { flexDirection: 'row', alignItems: 'center', marginTop: 16, paddingVertical: 12, borderTopWidth: 1, borderBottomWidth: 1, borderColor: c.border },
   sheetNote: { color: c.textSecondary, fontSize: 13, lineHeight: 18, marginTop: 10 },
-});
+}));

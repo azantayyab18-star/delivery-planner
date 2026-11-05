@@ -1,16 +1,18 @@
 import { Alert, Linking, Platform } from 'react-native';
 import { ApiRequestError } from './api';
 import { submitStopEvent } from './outbox';
-import type { Delivery } from './types';
+import type { Delivery, Vehicle } from './types';
+import { currentVehicle } from './vehicle';
 import { stopLabel } from './format';
 
-/** Opens Google Maps turn-by-turn directions to a delivery. */
-export function openDirections(delivery: Delivery) {
+/** Opens Google Maps turn-by-turn directions to a delivery, cycling or driving as the rider's vehicle. */
+export function openDirections(delivery: Delivery, vehicle: Vehicle = currentVehicle()) {
+  const bike = vehicle === 'bike';
   const { address } = delivery;
   // Approximate coordinates only point at the area, so let Google search the full address instead.
   const destination = address.geocoded && address.latitude != null && address.longitude != null ? `${address.latitude},${address.longitude}` : address.raw;
-  const web = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=driving&dir_action=navigate`;
-  const app = Platform.OS === 'android' ? `google.navigation:q=${encodeURIComponent(destination)}&mode=d` : web;
+  const web = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}&travelmode=${bike ? 'bicycling' : 'driving'}&dir_action=navigate`;
+  const app = Platform.OS === 'android' ? `google.navigation:q=${encodeURIComponent(destination)}&mode=${bike ? 'b' : 'd'}` : web;
   Linking.openURL(app).catch(() => Linking.openURL(web).catch(() => {}));
 }
 

@@ -1,9 +1,9 @@
 import type { ComponentProps, ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, TextInput, View, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, Text, TextInput, View, type TextInputProps, type TextStyle, type ViewStyle } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useRevealOnFocus } from './KeyboardAware';
 import { iosNoAutofill } from '../lib/inputs';
-import { premium as c, premiumRadius as r, premiumShadow } from '../lib/theme';
+import { premium as c, premiumRadius as r, premiumShadow, themed } from '../lib/theme';
 
 // Shared building blocks for screens on the premium navy + orange design system.
 
@@ -130,7 +130,7 @@ export function Empty({ icon, title, subtitle }: { icon: McName; title: string; 
   );
 }
 
-const s = StyleSheet.create({
+const s = themed(() => ({
   eyebrow: { color: c.primary, fontSize: 11, fontWeight: '800', letterSpacing: 1.1, textTransform: 'uppercase' },
   title: { color: c.text, fontSize: 24, fontWeight: '800' },
   subtitle: { color: c.textSecondary, fontSize: 13, marginTop: 4, lineHeight: 19 },
@@ -153,4 +153,4 @@ const s = StyleSheet.create({
 
   sectionLabel: { color: c.textSecondary, fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', marginBottom: 8 },
   error: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: 'rgba(255,83,104,0.12)', borderRadius: r.small, padding: 12, marginBottom: 12 },
-});
+}));
