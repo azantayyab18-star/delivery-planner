@@ -97,7 +97,8 @@ those files and prints the P8.3–P8.8 table; `--markdown out.md` writes it for
 With Locust instead of k6:
 
 ```bash
-export LOADTEST_BASE_URL=https://routify-api-staging.onrender.com
+export LOADTEST_BASE_URL=https://routify-api-swae.onrender.com
+export STAGING_HOST_PATTERN='staging|^routify-api-swae\.onrender\.com$'   # our test server has no "staging" in its name
 export LOCUST_SCENARIO=route200      # route200 | dropout | duplicates | two_devices
 locust -f infra/loadtest/locust/locustfile.py --host "$LOADTEST_BASE_URL" \
        --users 100 --spawn-rate 20 --run-time 5m --csv infra/loadtest/results/locust
