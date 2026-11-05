@@ -71,8 +71,13 @@ async def serve(stop: asyncio.Event, *, concurrency: int, grace: float, poll: fl
 
 async def main() -> None:
     stop = asyncio.Event()
+    loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
-        asyncio.get_running_loop().add_signal_handler(sig, stop.set)
+        try:
+            loop.add_signal_handler(sig, stop.set)
+        except NotImplementedError:
+            # Windows (local development) has no loop signal handlers: Ctrl+C still stops the worker, via the event loop.
+            signal.signal(sig, lambda *_: loop.call_soon_threadsafe(stop.set))
     init_sentry("worker")
     await connect()
     log(logging.INFO, "Worker started", concurrency=env.WORKER_CONCURRENCY)
