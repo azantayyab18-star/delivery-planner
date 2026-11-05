@@ -80,7 +80,7 @@ Make a password (letters and digits only, so it can go inside a URL without esca
 cd ~/delivery-planner/infra/routing/oracle
 docker run --rm caddy:2.8.4 caddy hash-password --plaintext 'YourLongPassword123'
 cp .env.example .env
-nano .env        # ROUTING_HOST, ACME_EMAIL, ROUTING_USER, ROUTING_PASSWORD_HASH (keep the single quotes)
+nano .env        # ROUTING_HOST, ROUTING_USER, ROUTING_PASSWORD_HASH (keep the single quotes)
 docker compose up -d
 docker compose logs -f caddy     # wait for "certificate obtained successfully", then Ctrl+C
 ```

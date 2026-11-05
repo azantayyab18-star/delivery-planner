@@ -3,9 +3,8 @@
 #   https://<ROUTING_HOST>/vroom      -> vroom:3000  (the backend's VROOM_URL ends in /vroom)
 # The backend puts the user and password in those URLs (https://user:password@host/osrm); its HTTP client sends them
 # as basic auth, so no backend change is needed.
-{
-	email {$ACME_EMAIL}
-}
+# The HTTPS certificate is obtained and renewed by Caddy (Let's Encrypt / ZeroSSL); a contact email is optional and not
+# set here.
 
 {$ROUTING_HOST} {
 	basic_auth {

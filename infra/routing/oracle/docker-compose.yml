@@ -2,7 +2,7 @@
 # The FastAPI backend stays on Render and reaches both over HTTPS with a username and password; OSRM and VROOM are
 # never published on their own ports. Both images are multi-arch (amd64 + arm64).
 #
-#   cd infra/routing/oracle && cp .env.example .env   # fill in ROUTING_HOST, ACME_EMAIL, the user and password hash
+#   cd infra/routing/oracle && cp .env.example .env   # fill in ROUTING_HOST, the user and the password hash
 #   docker compose up -d
 #
 # Map data: ../data/ireland.osrm*, built once with ../scripts/prepare-ireland.sh (see README.md for Britain + Ireland).
@@ -34,7 +34,6 @@ services:
       - "443:443"
     environment:
       ROUTING_HOST: ${ROUTING_HOST:?set ROUTING_HOST in .env}
-      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
       ROUTING_USER: ${ROUTING_USER:?set ROUTING_USER in .env}
       ROUTING_PASSWORD_HASH: ${ROUTING_PASSWORD_HASH:?set ROUTING_PASSWORD_HASH in .env}
     volumes:
