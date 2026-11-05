@@ -16,9 +16,9 @@ Everything here is plain Docker, so moving to the client's hosting later is the 
 
 1. **Compute → Instances → Create instance**
    - **Image:** Canonical Ubuntu 24.04 (the *aarch64* build appears when the shape below is chosen).
-   - **Shape:** Ampere → `VM.Standard.A1.Flex`, **4 OCPU, 24 GB memory** (the whole Always Free allowance;
-     Britain + Ireland needs the memory when the map is built).
-   - **Boot volume:** 100 GB.
+   - **Shape:** Ampere → `VM.Standard.A1.Flex`, **2 OCPU, 12 GB memory**: the whole Always Free allowance
+     (1,500 OCPU hours and 9,000 GB hours a month). Serving OSRM + VROOM needs far less; the memory is for building the map.
+   - **Boot volume:** 100 GB (Always Free covers 200 GB of boot + block storage in total).
    - **Networking:** a public subnet, *Assign a public IPv4 address* on.
    - **SSH keys:** upload your public key (or let Oracle generate one and download it).
    - If it says *Out of capacity*, try another availability domain, or later; free Ampere capacity comes and goes.
@@ -37,7 +37,14 @@ bash infra/routing/oracle/setup-server.sh     # Docker, firewall 80/443, 8 GB sw
 exit                                          # log out and back in so "docker" works without sudo
 ```
 
-## 3. Build the map (Britain + Ireland, once; again to refresh)
+## 3. Build the map (once; again to refresh)
+
+**Start with Ireland** (Ireland + Northern Ireland: ~0.5 GB download, about 10–20 minutes, fits easily in 12 GB).
+Britain + Ireland (~2 GB) is tight on the free server's 12 GB: it should get through with the 8 GB swap from step 2,
+but slowly (an hour or more). If it fails with an out-of-memory error, build it on a bigger machine (e.g. a 16 GB PC
+with Docker, the same script) and copy `infra/routing/data/` to the server with `scp -r`.
+
+For Ireland, the defaults in `.env.example` are already right: skip the `nano` step below. For Britain + Ireland:
 
 ```bash
 ssh -i <your-key> ubuntu@140.238.12.34
@@ -59,8 +66,7 @@ Then:
 ./scripts/prepare-ireland.sh
 ```
 
-It downloads about 2 GB and builds the routing data: roughly **30–60 minutes** for Britain + Ireland on 4 OCPU.
-The files are named `data/ireland.osrm*` whatever the region (the script's name comes from the first Ireland-only
+It downloads the extract and builds the routing data. The files are named `data/ireland.osrm*` whatever the region (the script's name comes from the first Ireland-only
 version); the services below expect that name.
 
 ## 4. Start OSRM, VROOM and Caddy
@@ -120,6 +126,15 @@ optimiser if VROOM is down).
 | Stop everything | `docker compose -f oracle/docker-compose.yml down` |
 
 All services restart by themselves after a reboot (`restart: unless-stopped`).
+
+## Free tier: things to know
+
+- **Home region only:** Always Free instances and volumes must be in your tenancy's home region (chosen at sign-up).
+- **Idle reclaim:** Oracle may reclaim an Always Free instance that is idle for 7 days: CPU (95th percentile),
+  network *and* memory all under 20%. With Britain + Ireland loaded, OSRM alone keeps memory above that; with only
+  Ireland and no use for a week it could fall under it. **Upgrading the account to Pay As You Go** stops idle reclaim
+  and still charges nothing while you stay within the Always Free limits (set a budget alert to be safe).
+- **Out of capacity:** free Ampere capacity is sometimes full; retry later or in another availability domain.
 
 ## Moving to the client's hosting later
 

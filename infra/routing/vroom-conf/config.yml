@@ -2,7 +2,7 @@
 cliArgs:
   geometry: false # route geometry is drawn by the app from OSRM separately
   planmode: false
-  threads: 4 # solver threads; match the server's cores
+  threads: 2 # solver threads; match the server's cores (2 OCPU on the Oracle free server)
   explore: 5 # search depth 0-5: 5 = best routes, slowest
   limit: '50mb' # request size (2,000 stops with time windows fits easily)
   logdir: '/..'
