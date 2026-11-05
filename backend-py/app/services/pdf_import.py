@@ -70,6 +70,29 @@ def _detect_payment(block: str) -> tuple[str | None, float | None]:
     return kind, (cod_amount if kind == "cod" and cod_amount and cod_amount > 0 else None)
 
 
+# A payment column at the end of a table row: "PREPAID Paid", "PREPAID", "Paid", "COD EUR 42.50", "COD 42.50", "Cash on delivery €10".
+PAYMENT_COLUMN = re.compile(
+    r"\s+(?P<kind>pre-?paid|paid\s+online|cod|cash\s+on\s+delivery|paid)"
+    r"(?:\s+(?:paid|unpaid|due|collect))?(?:\s*(?:[A-Z]{3}|[€£$]))?\s*(?P<amount>\d[\d,]*(?:\.\d{1,2})?)?\s*$", I)
+
+
+def _phone_end(rest: str, phone: re.Match) -> int:
+    """Where the phone number really ends. In a table row the address follows the number directly, so the digit run can
+    swallow the house number ("+353 87 102 4819 14 Capel St"). A short last group (≤ 3 digits) followed by a street
+    name goes back to the address; so does any group that pushes the number past 15 digits."""
+    spans = [(phone.start() + g.start(), phone.start() + g.end()) for g in re.finditer(r"\S+", phone.group(0))]
+    digits = lambda a, b: len(re.sub(r"\D", "", rest[a:b]))  # noqa: E731
+    while len(spans) > 1:
+        last_digits = digits(*spans[-1])
+        kept = digits(spans[0][0], spans[-2][1])
+        followed_by_word = re.match(r"\s*[A-Za-zÀ-ÿ]", rest[spans[-1][1]:])
+        if kept >= 9 and (kept + last_digits > 15 or (last_digits <= 3 and followed_by_word)):
+            spans.pop()
+        else:
+            break
+    return spans[-1][1]
+
+
 def _extract_table_rows(lines: list[str]) -> list[dict] | None:
     header = next((i for i, line in enumerate(lines) if re.search(r"\border\s*id\b", line, I) and re.search(r"\bcustomer\b", line, I)
                    and re.search(r"\bphone\b", line, I) and re.search(r"\bdelivery\s*address\b", line, I)), -1)
@@ -82,21 +105,25 @@ def _extract_table_rows(lines: list[str]) -> list[dict] | None:
         if not row:
             continue
         rest = row.group(2)
-        phone = next((m for m in re.finditer(r"\+?\d[\d\s()-]*\d", rest) if 9 <= len(re.sub(r"\D", "", m.group(0))) <= 15), None)
+        phone = next((m for m in re.finditer(r"\+?\d[\d\s()-]*\d", rest) if len(re.sub(r"\D", "", m.group(0))) >= 9), None)
         if not phone:
             continue
+        phone_start, phone_end = phone.start(), _phone_end(rest, phone)
+        if not 9 <= len(re.sub(r"\D", "", rest[phone_start:phone_end])) <= 15:
+            continue
 
-        customer_name = rest[: phone.start()].strip()
-        address = rest[phone.end():].strip()
+        customer_name = rest[:phone_start].strip()
+        address = rest[phone_end:].strip()
         payment_type = cod_amount = order_value = None
-        cod_suffix = re.search(r"\s+(?:COD|cash\s+on\s+delivery)(?:\s+[A-Z]{3})?\s+(\d[\d,]*(?:\.\d{1,2})?)\s*$", address, I)
-        prepaid_suffix = re.search(r"\s+(?:prepaid|paid\s+online)(?:\s+[A-Z]{3})?\s+(\d[\d,]*(?:\.\d{1,2})?)\s*$", address, I)
-        if cod_suffix:
-            payment_type, cod_amount = "cod", _amount(cod_suffix.group(1))
-            address = re.sub(r"[,;\s]+$", "", address[: cod_suffix.start()].strip())
-        elif prepaid_suffix:
-            payment_type, order_value = "prepaid", _amount(prepaid_suffix.group(1))
-            address = re.sub(r"[,;\s]+$", "", address[: prepaid_suffix.start()].strip())
+        payment = PAYMENT_COLUMN.search(address)
+        if payment:
+            # The manifest's payment columns ("PREPAID Paid", "COD EUR 42.50") follow the address: never part of it.
+            kind, amount = payment.group("kind").lower(), _amount(payment.group("amount"))
+            if re.match(r"cod|cash", kind):
+                payment_type, cod_amount = "cod", amount
+            else:
+                payment_type, order_value = "prepaid", amount
+            address = re.sub(r"[,;\s]+$", "", address[: payment.start()].strip())
 
         flags = []
         if not customer_name:
@@ -107,7 +134,7 @@ def _extract_table_rows(lines: list[str]) -> list[dict] | None:
             flags.append("payment_needs_review")
         if payment_type == "cod" and not (cod_amount and cod_amount > 0):
             flags.append("missing_cod_amount")
-        items.append({"trackingId": row.group(1), "customerName": customer_name, "phone": phone.group(0).strip(), "address": address,
+        items.append({"trackingId": row.group(1), "customerName": customer_name, "phone": rest[phone_start:phone_end].strip(), "address": address,
                       "paymentType": payment_type, "orderValue": order_value, "codAmount": cod_amount, "note": "", "flags": flags})
     return items
 

@@ -81,6 +81,25 @@ ORD-1002 Usman Ahmed 0300-0001002 House 45, Mohalla Islam Pura, Narowal
     assert "paymentType" not in items[0]
 
 
+def test_table_rows_keep_the_house_number_and_drop_the_payment_columns():
+    # A manifest row runs the phone straight into the address and ends with payment columns.
+    text = """
+ORDER ID CUSTOMER NAME PHONE (+353) FULL DELIVERY ADDRESS (INCL. EIRCODE) PAYMENT COLLECTION
+DP-001 Aoife Gallagher +353 87 102 4819 14 Capel St, City Centre, Dublin 1, D01 K152, Ireland PREPAID Paid
+DP-002 Sean MacCarthy +353 85 294 1102 88 Grafton St, Grafton Street, Dublin 2, D02 HE38, Ireland COD EUR 42.50
+DP-003 Test Rider +353 87 102 4819 14A Capel St, Dublin 1 PREPAID
+DP-004 Test Rider +353 87 102 4819 1234 Long Rd, Dublin 12 Paid
+"""
+    items = extract_deliveries_from_text(text)
+    assert [i["phone"] for i in items] == ["+353 87 102 4819", "+353 85 294 1102", "+353 87 102 4819", "+353 87 102 4819"]
+    assert [i["address"] for i in items] == [
+        "14 Capel St, City Centre, Dublin 1, D01 K152, Ireland",
+        "88 Grafton St, Grafton Street, Dublin 2, D02 HE38, Ireland",
+        "14A Capel St, Dublin 1",
+        "1234 Long Rd, Dublin 12",
+    ]
+
+
 def test_strips_trailing_cod_amount_from_table_address():
     [item] = extract_deliveries_from_text("\nOrder ID Customer Phone Delivery Address\nORD-1009 Fahad Aslam 0300-0001009 House 14, Main Bazar, Narowal COD PKR 1,575\n")
     assert item["address"] == "House 14, Main Bazar, Narowal"
