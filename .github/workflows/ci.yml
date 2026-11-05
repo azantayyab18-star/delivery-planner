@@ -14,6 +14,8 @@ concurrency:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    # The suite takes ~1-2 minutes; anything near this is a hang (see pytest's per-test timeout in pyproject.toml).
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: backend-py

@@ -27,6 +27,12 @@ class RequestStats:
 
 
 current_stats: ContextVar[RequestStats | None] = ContextVar("current_stats", default=None)
+
+
+def detach() -> None:
+    """Called first in a background task started by a request: its queries are not that request's (the task has its own
+    copy of the context, so the request keeps its numbers)."""
+    current_stats.set(None)
 _installed = False
 
 

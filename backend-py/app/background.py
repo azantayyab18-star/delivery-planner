@@ -5,6 +5,7 @@ import asyncio
 import logging
 from collections.abc import Awaitable
 
+from . import timing
 from .logger import log
 
 _tasks: set[asyncio.Task] = set()
@@ -12,6 +13,7 @@ _tasks: set[asyncio.Task] = set()
 
 def spawn(work: Awaitable[None], what: str) -> None:
     async def run() -> None:
+        timing.detach()
         try:
             await work
         except Exception:  # noqa: BLE001 - a background failure is logged, never raised into a request

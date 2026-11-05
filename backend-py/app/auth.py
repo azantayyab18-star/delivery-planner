@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 
 from starlette.requests import Request
 
-from . import redis_client
+from . import redis_client, timing
 from .db import db
 from .errors import forbidden, unauthorized
 from .http import now
@@ -84,6 +84,12 @@ async def _load_account(user_id: str) -> dict | None:
     return account
 
 
+async def _touch_detached(user_id: str) -> None:
+    """_touch in the background: not part of the request that started it (Server-Timing counts the request only)."""
+    timing.detach()
+    await _touch(user_id)
+
+
 async def _touch(user_id: str) -> None:
     try:
         await db.user.update(where={"id": user_id}, data={"lastActiveAt": now()})
@@ -119,7 +125,7 @@ async def authenticate(request: Request, *roles: str) -> dict:
                 await redis.set(_redis_key(user["id"]), _encode(user), keepttl=True, xx=True)
             except Exception:  # noqa: BLE001
                 redis_client.failed("account cache")
-        task = asyncio.create_task(_touch(user["id"]))
+        task = asyncio.create_task(_touch_detached(user["id"]))
         _background.add(task)
         task.add_done_callback(_background.discard)
 
