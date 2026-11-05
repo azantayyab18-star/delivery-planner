@@ -81,7 +81,7 @@ def _phone_end(rest: str, phone: re.Match) -> int:
     swallow the house number ("+353 87 102 4819 14 Capel St"). A short last group (≤ 3 digits) followed by a street
     name goes back to the address; so does any group that pushes the number past 15 digits."""
     spans = [(phone.start() + g.start(), phone.start() + g.end()) for g in re.finditer(r"\S+", phone.group(0))]
-    digits = lambda a, b: len(re.sub(r"\D", "", rest[a:b]))  # noqa: E731
+    digits = lambda a, b: len(re.sub(r"\D", "", rest[a:b]))
     while len(spans) > 1:
         last_digits = digits(*spans[-1])
         kept = digits(spans[0][0], spans[-2][1])
