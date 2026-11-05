@@ -4,12 +4,16 @@ ROUTING_PROVIDER=osrm uses our own OSRM (infra/routing, OSRM_URL): matrices of a
 paths and turn-by-turn steps. ROUTING_PROVIDER=google uses Google's Routes API matrix (≤ 60 points; no paths) and our
 OSRM after it when one is configured. ROUTING_PROVIDER=none: straight lines. The public OSRM demo server is never used
 (P6b.6): it is not meant for production traffic.
+
+Every route is planned for a vehicle (`vehicle`, set by the caller for the request or job): "bike" uses OSRM_URL (and
+Google's BICYCLE mode), "van" uses OSRM_CAR_URL (and Google's DRIVE mode). A van is never routed on the bike data.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from contextvars import ContextVar
 
 import httpx
 
@@ -25,6 +29,16 @@ OSRM_MAX_POINTS = 2500
 GOOGLE_BLOCK = 25
 GOOGLE_MATRIX_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
 
+# The vehicle the current request or job plans for: "bike" (default) or "van".
+vehicle: ContextVar[str] = ContextVar("vehicle", default="bike")
+
+
+def _osrm_target() -> tuple[str, str]:
+    """(base URL, profile name) of the OSRM for the current vehicle; the URL is "" when that vehicle has none."""
+    if vehicle.get() == "van":
+        return env.OSRM_CAR_URL, env.OSRM_CAR_PROFILE
+    return env.OSRM_URL, env.OSRM_PROFILE
+
 
 def _waypoint(p: dict) -> dict:
     return {"waypoint": {"location": {"latLng": {"latitude": p["latitude"], "longitude": p["longitude"]}}}}
@@ -32,8 +46,8 @@ def _waypoint(p: dict) -> dict:
 
 def _travel_mode() -> dict:
     # Riders on two wheels: Google's TWO_WHEELER mode has no routes in Ireland, and DRIVE sends a rider 3 km
-    # round Dublin's one-way and bus-only streets to reach a stop 50 m away, so BICYCLE is the default.
-    mode = env.ROUTING_TRAVEL_MODE
+    # round Dublin's one-way and bus-only streets to reach a stop 50 m away, so BICYCLE is the default. Vans drive.
+    mode = "DRIVE" if vehicle.get() == "van" else env.ROUTING_TRAVEL_MODE
     return {"travelMode": mode, "routingPreference": "TRAFFIC_UNAWARE"} if mode == "DRIVE" else {"travelMode": mode}
 
 
@@ -73,9 +87,11 @@ def _coords(points: list[dict]) -> str:
 
 
 async def _osrm_matrix(points: list[dict]) -> dict | None:
-    if not env.OSRM_URL:
+    base, profile = _osrm_target()
+    if not base:
+        # No OSRM for this vehicle (a van without OSRM_CAR_URL): straight lines. Google is for address search only.
         return None
-    url = f"{env.OSRM_URL}/table/v1/{env.OSRM_PROFILE}/{_coords(points)}"
+    url = f"{base}/table/v1/{profile}/{_coords(points)}"
     async with httpx.AsyncClient(timeout=TIMEOUT * 3) as client:
         res = await client.get(url, params={"annotations": "duration,distance"}, headers={"User-Agent": "routify-api"})
     if res.status_code >= 400:
@@ -113,7 +129,7 @@ def set_matrix_for_tests(fn=None) -> None:
 async def road_matrix(ids: list[str], points: list[dict]) -> dict | None:
     """{"ids", "durations" (s), "distances" (m)} between every pair of points, or None to fall back
     to straight-line planning (provider off, too many points, or the router is unreachable)."""
-    limit = GOOGLE_MAX_POINTS if env.ROUTING_PROVIDER == "google" and not env.OSRM_URL else OSRM_MAX_POINTS
+    limit = GOOGLE_MAX_POINTS if env.ROUTING_PROVIDER == "google" and not _osrm_target()[0] else OSRM_MAX_POINTS
     if len(points) < 2 or len(points) > limit:
         return None
     try:
@@ -127,9 +143,10 @@ async def road_matrix(ids: list[str], points: list[dict]) -> dict | None:
 # ---- Road paths: route lines (P6b.4) and navigation (P6b.5), from our OSRM only ----
 
 async def _osrm_route(points: list[dict], steps: bool) -> dict | None:
-    if not env.OSRM_URL or len(points) < 2:
+    base, profile = _osrm_target()
+    if not base or len(points) < 2:
         return None
-    url = f"{env.OSRM_URL}/route/v1/{env.OSRM_PROFILE}/{_coords(points)}"
+    url = f"{base}/route/v1/{profile}/{_coords(points)}"
     params = {"overview": "full", "geometries": "polyline", "steps": "true" if steps else "false"}
     async with httpx.AsyncClient(timeout=TIMEOUT * 3) as client:
         res = await client.get(url, params=params, headers={"User-Agent": "routify-api"})
@@ -147,7 +164,7 @@ async def _osrm_route(points: list[dict], steps: bool) -> dict | None:
     }
     if steps:
         out["steps"] = [{"distance": st["distance"], "duration": st["duration"], "name": st.get("name") or "",
-                         "maneuver": {k: v for k, v in (st.get("maneuver") or {}).items() if k in ("type", "modifier", "location")}}
+                         "maneuver": {k: v for k, v in (st.get("maneuver") or {}).items() if k in ("type", "modifier", "location", "exit")}}
                         for leg in best["legs"] for st in leg.get("steps", [])]
     return out
 

@@ -13,7 +13,7 @@ from ..http import js_round, now, round2, today_key
 from ..ids import new_id
 from ..logger import log
 from . import geocoding_service as geocoding
-from . import jobs, optimizer
+from . import jobs, optimizer, routing_service
 from .geo import haversine_km, normalize_address
 from .serializers import clean_delivery_address, serialize_delivery
 from .settings_service import get_settings
@@ -83,7 +83,7 @@ def _serialize_route(route: Any, stop_rows: list[Any], by_id: dict[str, Any]) ->
     # one, so nothing is pulled in automatically any more. Kept in the response for older app versions.
     new_stops = 0
     return {
-        "id": route.id, "name": route.name or None, "status": str(route.status), "preference": str(route.preference), "serviceDate": route.serviceDate,
+        "id": route.id, "name": route.name or None, "status": str(route.status), "preference": str(route.preference), "vehicle": str(route.vehicle), "serviceDate": route.serviceDate,
         "origin": _origin(route),
         "distanceKm": route.distanceKm, "durationMin": route.durationMin, "startedAt": route.startedAt, "completedAt": route.completedAt,
         "optimization": route.optimization, "newStops": new_stops,
@@ -201,17 +201,23 @@ async def _refresh_delivery_geocodes(deliveries: list[Any], *, retry_approximate
     return [saved.get(d.id, d) for d in out]
 
 
-async def _plan(deliveries: list[Any], origin: dict | None, preference: str, settings: dict, first_order: int = 1) -> tuple[list[dict], float, float, str]:
-    """Orders the stops. Only verified locations are optimised; unresolved (or approximate) ones go last.
+async def _plan(deliveries: list[Any], origin: dict | None, preference: str, settings: dict, first_order: int = 1,
+                vehicle: str = "bike") -> tuple[list[dict], float, float, str]:
+    """Orders the stops for `vehicle` (bike or van: its roads and travel times). Only verified locations are optimised;
+    unresolved (or approximate) ones go last.
     Returns (stops, distanceKm, durationMin, optimization) where optimization is "road" or "straight_line"."""
     located = [d for d in deliveries if d.addressGeocoded]
     unlocated = [d for d in deliveries if not d.addressGeocoded]
     # VROOM when available, else the built-in planner, which runs in the worker process for anything but tiny routes
     # (P6b.1/P6b.2): the API process never does heavy ordering work itself.
-    plan = await optimizer.plan(
-        origin, [{"id": d.id, "latitude": d.addressLatitude, "longitude": d.addressLongitude, "addressKey": normalize_address(d.addressRaw)} for d in located],
-        preference, settings,
-    )
+    token = routing_service.vehicle.set(vehicle)
+    try:
+        plan = await optimizer.plan(
+            origin, [{"id": d.id, "latitude": d.addressLatitude, "longitude": d.addressLongitude, "addressKey": normalize_address(d.addressRaw)} for d in located],
+            preference, settings,
+        )
+    finally:
+        routing_service.vehicle.reset(token)
     stops = [
         *({"deliveryId": did, "order": first_order + i, "legDistanceKm": plan["legs"][i]["distanceKm"], "legDurationMin": plan["legs"][i]["durationMin"]}
           for i, did in enumerate(plan["order"])),
@@ -253,7 +259,7 @@ def _stops_changed() -> AppError:
 
 
 async def build(actor: dict, *, preference: str | None = None, origin: dict | None = None, delivery_ids: list[str] | None = None,
-                date: str | None = None, name: str | None = None) -> dict:
+                date: str | None = None, name: str | None = None, vehicle: str | None = None) -> dict:
     _require_rider(actor)
     date = date or today_key()
     await _assert_no_active_route(db, actor, date)
@@ -283,7 +289,8 @@ async def build(actor: dict, *, preference: str | None = None, origin: dict | No
     # Geocode before ordering so stop numbers reflect destination order, not entry order. Lookups and ordering take a
     # while, so they happen before the transaction; the writes below are all-or-nothing under the rider's lock.
     deliveries = await _refresh_delivery_geocodes(deliveries, area=await service_area_for(actor, origin))
-    stops, distance_km, duration_min, optimization = await _plan(deliveries, origin, pref, settings)
+    vehicle = vehicle or "bike"
+    stops, distance_km, duration_min, optimization = await _plan(deliveries, origin, pref, settings, vehicle=vehicle)
     ids = [s["deliveryId"] for s in stops]
 
     async with transaction() as tx:
@@ -296,7 +303,7 @@ async def build(actor: dict, *, preference: str | None = None, origin: dict | No
         if await tx.delivery.count(where={"id": {"in": ids}, "riderId": actor["id"], "status": "pending", "OR": free}) != len(ids):
             raise _stops_changed()
         route = await tx.route.create(data={
-            "id": new_id(), "riderId": actor["id"], "serviceDate": date, "name": name or None, "preference": pref,
+            "id": new_id(), "riderId": actor["id"], "serviceDate": date, "name": name or None, "preference": pref, "vehicle": vehicle,
             "status": "planned", "originLatitude": origin["latitude"] if origin else None, "originLongitude": origin["longitude"] if origin else None,
             "distanceKm": distance_km, "durationMin": duration_min, "optimization": optimization,
         })
@@ -342,7 +349,7 @@ async def retry_geocoding(actor: dict, route_id: str) -> dict:
 
     if route.status == "planned":
         pref = str(route.preference) or (str(user.routePreference) if user else None) or settings["route"]["defaultPreference"]
-        stops, distance_km, duration_min, optimization = await _plan(deliveries, origin, pref, settings)
+        stops, distance_km, duration_min, optimization = await _plan(deliveries, origin, pref, settings, vehicle=str(route.vehicle))
         async with transaction() as tx:
             await _lock_route(tx, actor, route.id, [d.id for d in deliveries], ("planned",))
             await tx.routestop.delete_many(where={"routeId": route.id})
@@ -394,7 +401,8 @@ async def optimize(actor: dict, route_id: str, origin: dict | None = None) -> di
     open_stops = await _refresh_delivery_geocodes(open_stops, area=await service_area_for(actor, start_point))
     settings, user = await asyncio.gather(get_settings(), db.user.find_unique(where={"id": actor["id"]}))
     pref = str(route.preference) or (str(user.routePreference) if user else None) or settings["route"]["defaultPreference"]
-    stops, distance_km, duration_min, optimization = await _plan(open_stops, start_point, pref, settings, first_order=len(finished) + 1)
+    stops, distance_km, duration_min, optimization = await _plan(open_stops, start_point, pref, settings, first_order=len(finished) + 1,
+                                                                 vehicle=str(route.vehicle))
 
     keep = {s.deliveryId: s for s in stop_rows}
     finished_rows = [{"deliveryId": d.id, "order": i + 1, "legDistanceKm": keep[d.id].legDistanceKm, "legDurationMin": keep[d.id].legDurationMin}
@@ -465,7 +473,7 @@ async def route_summaries(routes: list[Any]) -> list[dict]:
         done = summary["total"] - summary["pending"]
         items.append({
             "id": route.id, "name": route.name or None, "status": str(route.status), "preference": str(route.preference),
-            "serviceDate": route.serviceDate, "distanceKm": route.distanceKm, "durationMin": route.durationMin,
+            "vehicle": str(route.vehicle), "serviceDate": route.serviceDate, "distanceKm": route.distanceKm, "durationMin": route.durationMin,
             "startedAt": route.startedAt, "completedAt": route.completedAt,
             "progress": {"total": summary["total"], "done": done, "remaining": summary["total"] - done},
             "summary": summary,

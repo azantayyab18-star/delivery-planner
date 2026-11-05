@@ -105,8 +105,11 @@ class Settings:
     ROUTING_TRAVEL_MODE: str
     OSRM_URL: str
     OSRM_PROFILE: str
+    OSRM_CAR_URL: str
+    OSRM_CAR_PROFILE: str
     VROOM_URL: str
     VROOM_PROFILE: str
+    VROOM_CAR_PROFILE: str
     PLANNER_INLINE_MAX: int
     PLAN_JOB_WAIT_SECONDS: int
     STORAGE_BACKEND: str
@@ -154,6 +157,8 @@ class Settings:
     GOOGLE_SERVICE_ACCOUNT_FILE: str | None
     GOOGLE_PUBSUB_AUDIENCE: str | None
     GOOGLE_PUBSUB_SERVICE_ACCOUNT: str | None
+    GOOGLE_SIGNIN_CLIENT_IDS: tuple[str, ...]
+    APPLE_SIGNIN_AUDIENCES: tuple[str, ...]
     MIN_APP_VERSION: str
     LATEST_APP_VERSION: str
     REVENUECAT_SECRET_API_KEY: str | None
@@ -218,9 +223,15 @@ def load_settings() -> Settings:
         OSRM_URL=(_str("OSRM_URL") or "").rstrip("/"),
         # The profile name in OSRM URLs (one OSRM data set answers any name; it is built for OSRM_PROFILE in infra/routing).
         OSRM_PROFILE=_str("OSRM_PROFILE", "bike") or "bike",
+        # Routes planned for a van: a second OSRM built with the car profile (infra/routing). Unset: van routes are
+        # ordered by straight-line distance; never on the bike data, and never by Google (address search only).
+        OSRM_CAR_URL=(_str("OSRM_CAR_URL") or "").rstrip("/"),
+        OSRM_CAR_PROFILE=_str("OSRM_CAR_PROFILE", "car") or "car",
         # Route optimisation by our VROOM (infra/routing); empty = the built-in Python planner only.
         VROOM_URL=(_str("VROOM_URL") or "").rstrip("/"),
         VROOM_PROFILE=_str("VROOM_PROFILE", "bike") or "bike",
+        # VROOM's profile for vans (vroom-conf: "car" -> the car OSRM). Used only when OSRM_CAR_URL is set.
+        VROOM_CAR_PROFILE=_str("VROOM_CAR_PROFILE", "car") or "car",
         # Plans up to this many stops run inside the API (a few ms); larger ones always go to the worker process.
         PLANNER_INLINE_MAX=_int("PLANNER_INLINE_MAX", 8, lo=0, hi=12),
         # How long a v1 build/optimise request waits for the worker before answering 503.
@@ -279,6 +290,11 @@ def load_settings() -> Settings:
         GOOGLE_SERVICE_ACCOUNT_FILE=_str("GOOGLE_SERVICE_ACCOUNT_FILE"),
         GOOGLE_PUBSUB_AUDIENCE=_str("GOOGLE_PUBSUB_AUDIENCE"),
         GOOGLE_PUBSUB_SERVICE_ACCOUNT=_str("GOOGLE_PUBSUB_SERVICE_ACCOUNT"),
+        # "Continue with Google" (Android): the OAuth client id(s) the app asks Google for an ID token for (the Web client
+        # id in Google Cloud), comma-separated. Empty: Google sign-in is off.
+        GOOGLE_SIGNIN_CLIENT_IDS=tuple(x.strip() for x in (_str("GOOGLE_SIGNIN_CLIENT_IDS") or "").split(",") if x.strip()),
+        # "Sign in with Apple" (iPhone): the app's bundle id(s) Apple's identity tokens are issued to.
+        APPLE_SIGNIN_AUDIENCES=tuple(x.strip() for x in (_str("APPLE_SIGNIN_AUDIENCES") or "com.azaan890.deliveryrider").split(",") if x.strip()),
         # The app shows a blocking "Update the app" screen below MIN_APP_VERSION and a gentle prompt below LATEST_APP_VERSION.
         MIN_APP_VERSION=_version("MIN_APP_VERSION", "1.0.0"),
         LATEST_APP_VERSION=_version("LATEST_APP_VERSION", "1.0.0"),

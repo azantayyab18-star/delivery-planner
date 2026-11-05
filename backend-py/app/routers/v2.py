@@ -17,6 +17,7 @@ from ..services import idempotency_service as idempotency
 from ..services import jobs
 from ..services import v2_service as v2
 from ..services.route_service import service_area_for
+from ..services.subscription_service import require_subscription
 from ..uploads import PHOTO, receive
 from ..validation import DateKey, IdParams, ObjectId, Schema, validate
 from .deliveries import Coordinates, DeliveryInput, Text
@@ -181,6 +182,7 @@ async def places_autocomplete(request: Request):
     """Up to 5 suggestions for what the rider is typing: {placeId, label, latitude, longitude, approximate}. With Google
     the point is not included (placeId set): POST /v2/places/details with the same sessionToken when the rider picks."""
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="look up addresses")
     await limit(request, suggest_limiter)
     await limit_rider(actor, suggest_daily_limiter)
     body = (await validate(request, body=AutocompleteBody))["body"]
@@ -198,6 +200,7 @@ class DetailsBody(Schema):
 async def places_details(request: Request):
     """The point of a picked suggestion (ends the billing session): {found, latitude, longitude, normalized, postalCode, approximate}."""
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="look up addresses")
     await limit(request, geocode_limiter)
     await limit_rider(actor, geocode_daily_limiter)
     body = (await validate(request, body=DetailsBody))["body"]
@@ -220,6 +223,7 @@ async def optimize_route(request: Request):
     """Queues a re-optimisation of the route's open stops (the worker does it, VROOM or the built-in planner) and answers
     202 with the job at once; poll GET /v2/jobs/{id}. A second request while one is waiting returns that job."""
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="plan routes")
     valid = await validate(request, params=IdParams, body=OptimizeBody)
     route_id = valid["params"].id
     await v2.route_etag(actor, route_id)  # 404 unless it is this rider's route
@@ -255,11 +259,14 @@ async def route_geometry(request: Request):
 class NavigationBody(Schema):
     start: Coordinates
     target: Coordinates
+    # The route's vehicle: a van is guided on car roads, a bike on bike roads.
+    vehicle: Literal["bike", "van"] = "bike"
 
 
 @router.post("/navigation/route")
 async def navigation_route(request: Request):
     """Re-route for live navigation (P6b.5): our OSRM's road path and turn steps from the rider to the next stop."""
-    await authenticate(request, "rider")
+    actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="navigate")
     body = (await validate(request, body=NavigationBody))["body"]
-    return respond(await v2.navigation_route(body.start.model_dump(), body.target.model_dump()))
+    return respond(await v2.navigation_route(body.start.model_dump(), body.target.model_dump(), body.vehicle))

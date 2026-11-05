@@ -16,6 +16,7 @@ from ..services.file_import import build_draft_from_file
 from ..services.pdf_import import build_draft
 from ..services.route_service import service_area_for
 from ..services.serializers import serialize_delivery
+from ..services.subscription_service import require_subscription
 from ..uploads import DOCUMENT, PDF, PHOTO, receive
 from ..validation import DateKey, IdParams, Pagination, Phone, Schema, Trimmed, validate
 
@@ -162,6 +163,7 @@ async def create_bulk(request: Request):
 async def geocode_check(request: Request):
     """Looks an address up on the map without saving anything (used by the camera before adding a stop)."""
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="look up addresses")
     await limit(request, geocode_limiter)
     await limit_rider(actor, geocode_daily_limiter)
     body = (await validate(request, body=GeocodeCheckBody))["body"]
@@ -180,6 +182,7 @@ async def geocode_check_batch(request: Request):
     place before they become stops. One request against the per-IP limit; each different address counts once against
     the rider's daily lookups. A lookup the provider fails is reported for that address ("error": true), not for all."""
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="look up addresses")
     await limit(request, geocode_limiter)
     body = (await validate(request, body=GeocodeCheckBatchBody))["body"]
     unique = list(dict.fromkeys(body.addresses))
@@ -207,6 +210,7 @@ async def geocode_check_batch(request: Request):
 async def geocode_suggest(request: Request):
     """Up to 5 matching addresses for what the rider is typing (street, place name or postcode), nearest their city first."""
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="look up addresses")
     await limit(request, suggest_limiter)
     await limit_rider(actor, suggest_daily_limiter)
     body = (await validate(request, body=SuggestBody))["body"]
@@ -219,6 +223,7 @@ async def geocode_suggest(request: Request):
 async def geocode_reverse(request: Request):
     """The street address at a pin the rider dropped on the map (null when none is known)."""
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="look up addresses")
     await limit(request, geocode_limiter)
     await limit_rider(actor, geocode_daily_limiter)
     body = (await validate(request, body=Coordinates))["body"]

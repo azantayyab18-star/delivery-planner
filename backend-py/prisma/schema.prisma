@@ -32,6 +32,12 @@ enum RoutePreference {
   shortest
 }
 
+/// What the rider drives on a route: road distances, the stop order and navigation follow it.
+enum Vehicle {
+  bike
+  van
+}
+
 enum AreaSource {
   gps
   manual
@@ -107,6 +113,10 @@ model User {
   phone                String?         @db.VarChar(32)
   email                String          @unique @db.VarChar(254)
   passwordHash         String
+  /// Accounts signed in with Google (Android) or Apple (iPhone): the provider's stable user id ("sub"). Those riders
+  /// also get a random password, so "Forgot password" can give them one for email sign-in too.
+  googleSub            String?         @unique @db.VarChar(255)
+  appleSub             String?         @unique @db.VarChar(255)
   role                 Role
   currency             String          @default("USD") @db.VarChar(3)
   routePreference      RoutePreference @default(smart)
@@ -222,6 +232,7 @@ model Route {
   /// The name the rider gives the route when creating it (e.g. "Monday north").
   name            String?         @db.VarChar(80)
   preference      RoutePreference
+  vehicle         Vehicle         @default(bike)
   status          RouteStatus     @default(planned)
   originLatitude  Float?
   originLongitude Float?

@@ -133,20 +133,30 @@ async def get_mine(actor: dict) -> dict:
     }
 
 
+async def require_subscription(actor: dict, client: Any = None, *, action: str = "use this") -> Any:
+    """The rider's subscription, when it is usable (free trial or active); otherwise a 403 the app turns into the paywall.
+
+    Guards everything that costs money per call (Google address lookups and place search, file import) or runs the route
+    planner, so an account without a plan can only sign in and name a route. Returns the subscription.
+    """
+    subscription = await (client or db).subscription.find_unique(where={"userId": actor["id"]})
+    status = effective_status(subscription)
+    if status == "inactive":
+        raise AppError(403, "SUBSCRIPTION_REQUIRED", f"Start your free trial or choose a plan to {action}.")
+    if status not in ("trialing", "active"):
+        message = (f"Your last payment failed. Update your subscription to {action}." if status == "past_due"
+                   else f"Your subscription has expired. Upgrade to {action}.")
+        raise AppError(403, "SUBSCRIPTION_EXPIRED", message)
+    return subscription
+
+
 async def assert_can_create_deliveries(actor: dict, count: int = 1, client: Any = None) -> None:
     """Blocks new deliveries when the subscription is not usable or the monthly limit would be exceeded.
 
     Pass the transaction that inserts the deliveries as `client` so the count and the insert see the same data.
     """
     client = client or db
-    subscription = await client.subscription.find_unique(where={"userId": actor["id"]})
-    status = effective_status(subscription)
-    if status == "inactive":
-        raise AppError(403, "SUBSCRIPTION_REQUIRED", "Start your free trial or choose a plan to add deliveries.")
-    if status not in ("trialing", "active"):
-        message = ("Your last payment failed. Update your subscription to add deliveries." if status == "past_due"
-                   else "Your subscription has expired. Upgrade to add new deliveries.")
-        raise AppError(403, "SUBSCRIPTION_EXPIRED", message)
+    subscription = await require_subscription(actor, client, action="add deliveries")
     plan = await client.plan.find_unique(where={"key": subscription.planKey})
     if not plan:
         return

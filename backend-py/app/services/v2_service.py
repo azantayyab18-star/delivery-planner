@@ -111,7 +111,7 @@ def _header(route: Any, counts: dict[str, int], next_stop_id: str | None) -> dic
     done = summary["total"] - summary["pending"]
     return {
         "id": route.id, "name": route.name or None, "status": str(route.status), "serviceDate": route.serviceDate,
-        "preference": str(route.preference), "optimization": route.optimization,
+        "preference": str(route.preference), "vehicle": str(route.vehicle), "optimization": route.optimization,
         "origin": {"latitude": route.originLatitude, "longitude": route.originLongitude} if route.originLatitude is not None else None,
         "distanceKm": route.distanceKm, "durationMin": route.durationMin,
         "progress": {"total": summary["total"], "done": done, "remaining": summary["total"] - done},
@@ -385,7 +385,12 @@ async def route_geometry(actor: dict, route_id: str) -> tuple[str, dict]:
     stops = [r for r in rows if r["status"] in OPEN and r["addressGeocoded"] and r["addressLatitude"] is not None]
     origin = [{"latitude": route.originLatitude, "longitude": route.originLongitude}] if route.originLatitude is not None else []
     points = origin + [{"latitude": r["addressLatitude"], "longitude": r["addressLongitude"]} for r in stops]
-    road = await routing_service.road_path(points)
+    # The line follows the roads of the route's vehicle (a van's line never takes a bike-only path).
+    token = routing_service.vehicle.set(str(route.vehicle))
+    try:
+        road = await routing_service.road_path(points)
+    finally:
+        routing_service.vehicle.reset(token)
     legs = (road or {}).get("legs") or []
     if origin:
         stop_legs = legs
@@ -403,7 +408,12 @@ async def route_geometry(actor: dict, route_id: str) -> tuple[str, dict]:
     return version, data
 
 
-async def navigation_route(start: dict, target: dict) -> dict:
-    """Turn-by-turn from the rider to the next stop: {path, distanceKm, durationMin, steps}; path None without a router."""
-    road = await routing_service.road_path([start, target], steps=True)
+async def navigation_route(start: dict, target: dict, vehicle: str = "bike") -> dict:
+    """Turn-by-turn from the rider to the next stop for their vehicle: {path, distanceKm, durationMin, steps}; path None
+    without a router."""
+    token = routing_service.vehicle.set(vehicle)
+    try:
+        road = await routing_service.road_path([start, target], steps=True)
+    finally:
+        routing_service.vehicle.reset(token)
     return road or {"path": None, "distanceKm": None, "durationMin": None, "steps": []}

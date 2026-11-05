@@ -94,7 +94,7 @@ async def test_route_is_light_and_answers_304_when_unchanged(client):
     res = await client.get(f"/api/v2/routes/{built['id']}", headers=auth)
     assert res.status_code == 200, res.text
     route = res.json()["data"]
-    assert set(route) == {"id", "name", "status", "serviceDate", "preference", "optimization", "origin", "distanceKm", "durationMin",
+    assert set(route) == {"id", "name", "status", "serviceDate", "preference", "vehicle", "optimization", "origin", "distanceKm", "durationMin",
                           "progress", "summary", "nextStopId", "stops"}
     assert set(route["stops"][0]) == STOP_KEYS and [s["order"] for s in route["stops"]] == [1, 2, 3, 4]
     assert [s["id"] for s in route["stops"]] == [s["delivery"]["id"] for s in built["stops"]]
@@ -305,7 +305,7 @@ async def test_home_is_one_request_with_counts_only(client):
 
 # ---------------------------------------------------------------- v1 regression (P2.9)
 
-V1_ROUTE_KEYS = {"id", "name", "status", "preference", "serviceDate", "origin", "distanceKm", "durationMin", "startedAt", "completedAt",
+V1_ROUTE_KEYS = {"id", "name", "status", "preference", "vehicle", "serviceDate", "origin", "distanceKm", "durationMin", "startedAt", "completedAt",
                  "optimization", "newStops", "stops", "progress", "currentStopId", "summary"}
 V1_DELIVERY_KEYS = {"id", "riderId", "trackingId", "customer", "address", "status", "proof", "note", "failure", "serviceDate", "routeId",
                     "stopOrder", "arrivedAt", "deliveredAt", "failedAt", "createdAt", "flags"}
@@ -344,7 +344,7 @@ async def test_v1_keeps_its_shapes_and_behaviour(client):
     assert set(dash) == {"rider", "date", "total", "delivered", "failed", "pending", "distanceKm", "routeMinutes", "progressPercent", "routeId",
                          "routeStatus", "nextAction", "map"}
     by_date = (await client.get("/api/v1/routes/by-date", headers=auth, params={"from": TODAY})).json()["data"]
-    assert set(by_date[0]) == {"id", "name", "status", "preference", "serviceDate", "distanceKm", "durationMin", "startedAt", "completedAt", "progress", "summary"}
+    assert set(by_date[0]) == {"id", "name", "status", "preference", "vehicle", "serviceDate", "distanceKm", "durationMin", "startedAt", "completedAt", "progress", "summary"}
     assert (await client.get("/api/v1/routes/leftover", headers=auth, params={"date": TODAY})).json()["data"] == {"total": 0, "days": []}
 
 

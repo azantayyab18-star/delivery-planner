@@ -11,6 +11,7 @@ from ..errors import AppError, unauthorized
 from ..http import ApiJSONResponse, ok, respond
 from ..middleware import auth_limiter, email_taken_limiter, limit, reset_email_limiter
 from ..services import auth_service as auth
+from ..services import social_auth
 from ..validation import Email, Phone, Schema, Trimmed, validate
 
 router = APIRouter(prefix="/auth")
@@ -37,6 +38,13 @@ class LoginBody(Schema):
     email: Email
     password: Annotated[str, StringConstraints(min_length=1, max_length=128)]
     client: Literal["mobile", "web"] = "mobile"
+
+
+class SocialBody(Schema):
+    # The ID token from the phone's Google / Apple sign-in (a signed JWT, checked against the provider's keys).
+    idToken: Annotated[str, StringConstraints(strip_whitespace=True, min_length=20, max_length=8000)]
+    # Apple sends the rider's name to the app on the first sign-in only (it is not in the token).
+    fullName: Annotated[str, StringConstraints(strip_whitespace=True, max_length=120)] | None = None
 
 
 class RefreshBody(Schema):
@@ -131,6 +139,22 @@ async def login(request: Request):
     await limit(request, auth_limiter)
     body = (await validate(request, body=LoginBody))["body"]
     return _respond(await auth.login(email=body.email, password=body.password, client=body.client, ctx=ctx(request)), body.client)
+
+
+@router.post("/google")
+async def google_sign_in(request: Request):
+    """Continue with Google (Android): signs in, links an existing account with the same email, or creates one."""
+    await limit(request, auth_limiter)
+    body = (await validate(request, body=SocialBody))["body"]
+    return _respond(await social_auth.sign_in("google", body.idToken, full_name=body.fullName, ctx=ctx(request)), "mobile")
+
+
+@router.post("/apple")
+async def apple_sign_in(request: Request):
+    """Sign in with Apple (iPhone): the same, with Apple's identity token."""
+    await limit(request, auth_limiter)
+    body = (await validate(request, body=SocialBody))["body"]
+    return _respond(await social_auth.sign_in("apple", body.idToken, full_name=body.fullName, ctx=ctx(request)), "mobile")
 
 
 @router.post("/refresh")

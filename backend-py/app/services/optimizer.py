@@ -39,13 +39,22 @@ async def _post_vroom(body: dict) -> dict:
     return res.json()
 
 
+def _vroom_profile() -> str:
+    return env.VROOM_CAR_PROFILE if routing_service.vehicle.get() == "van" else env.VROOM_PROFILE
+
+
+def _vroom_ready() -> bool:
+    """VROOM is set up for the current vehicle: a van needs the car OSRM behind VROOM's car profile."""
+    return bool(_vroom_url()) and (routing_service.vehicle.get() != "van" or bool(env.OSRM_CAR_URL))
+
+
 async def vroom_plan(origin: dict | None, stops: list[dict], service_minutes: float) -> dict | None:
     """One rider, an open route from `origin` (else the first stop), every stop a job. None when VROOM is not set up."""
-    if not _vroom_url() or not stops:
+    if not _vroom_ready() or not stops:
         return None
     start = origin or stops[0]
     body = {
-        "vehicles": [{"id": 1, "profile": env.VROOM_PROFILE, "start": [start["longitude"], start["latitude"]]}],
+        "vehicles": [{"id": 1, "profile": _vroom_profile(), "start": [start["longitude"], start["latitude"]]}],
         "jobs": [{"id": i, "location": [s["longitude"], s["latitude"]], "service": int(service_minutes * 60)} for i, s in enumerate(stops)],
         # g: route geometry, which also makes VROOM report road distances per step.
         "options": {"g": True},
@@ -78,7 +87,12 @@ async def python_plan(origin: dict | None, stops: list[dict], preference: str, a
 
 @jobs.handler("plan")
 async def _plan_job(payload: dict) -> dict:
-    return await python_plan(payload["origin"], payload["stops"], payload["preference"], payload["avgSpeedKmh"], payload["serviceMinutes"])
+    # The vehicle travels with the job: the worker plans on the same roads the API would have.
+    token = routing_service.vehicle.set(payload.get("vehicle") or "bike")
+    try:
+        return await python_plan(payload["origin"], payload["stops"], payload["preference"], payload["avgSpeedKmh"], payload["serviceMinutes"])
+    finally:
+        routing_service.vehicle.reset(token)
 
 
 async def plan(origin: dict | None, stops: list[dict], preference: str, settings: dict) -> dict:
@@ -94,5 +108,6 @@ async def plan(origin: dict | None, stops: list[dict], preference: str, settings
             log(logging.WARNING, "VROOM unavailable; using the built-in planner", exc_info=True)
     if jobs.in_worker.get() or len(stops) <= env.PLANNER_INLINE_MAX:
         return await python_plan(origin, stops, preference, avg_speed, service)
-    payload: dict[str, Any] = {"origin": origin, "stops": stops, "preference": preference, "avgSpeedKmh": avg_speed, "serviceMinutes": service}
+    payload: dict[str, Any] = {"origin": origin, "stops": stops, "preference": preference, "avgSpeedKmh": avg_speed, "serviceMinutes": service,
+                               "vehicle": routing_service.vehicle.get()}
     return await jobs.run_and_wait("plan", payload, rider_id=current_rider.get(), timeout_s=env.PLAN_JOB_WAIT_SECONDS)

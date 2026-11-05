@@ -18,6 +18,7 @@ from ..services import route_service as routes
 from ..services import storage_service as storage
 from ..services import subscription_service as subs
 from ..services.settings_service import get_public_config
+from ..services.subscription_service import require_subscription
 from ..validation import DateKey, IdParams, ObjectId, Preference, Schema, validate
 
 # ---------- /config ----------
@@ -66,14 +67,17 @@ class BuildBody(Schema):
     deliveryIds: Annotated[list[ObjectId], Field(max_length=MAX_BUILD_STOPS)] | None = None
     date: DateKey | None = None
     name: Annotated[str, StringConstraints(strip_whitespace=True, max_length=80)] | None = None
+    # What the rider drives on this route: its roads, stop order and navigation follow it.
+    vehicle: Literal["bike", "van"] | None = None
 
 
 @routes_router.post("/build")
 async def build_route(request: Request):
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="plan routes")
     body = (await validate(request, body=BuildBody))["body"]
     return respond(await routes.build(actor, preference=body.preference, origin=body.origin.model_dump() if body.origin else None,
-                                      delivery_ids=body.deliveryIds, date=body.date, name=body.name), 201)
+                                      delivery_ids=body.deliveryIds, date=body.date, name=body.name, vehicle=body.vehicle), 201)
 
 
 class DayQuery(Schema):
@@ -146,6 +150,7 @@ async def completed_routes(request: Request):
 @routes_router.post("/{id}/retry-geocoding")
 async def retry_geocoding(request: Request):
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="plan routes")
     params = (await validate(request, params=IdParams))["params"]
     return respond(await routes.retry_geocoding(actor, params.id))
 
@@ -158,6 +163,7 @@ class OptimizeBody(Schema):
 async def optimize_route(request: Request):
     """Re-orders the open stops by road travel time from the rider's position, including newly added stops."""
     actor = await authenticate(request, "rider")
+    await require_subscription(actor, action="plan routes")
     valid = await validate(request, params=IdParams, body=OptimizeBody)
     body = valid["body"]
     return respond(await routes.optimize(actor, valid["params"].id, origin=body.origin.model_dump() if body.origin else None))

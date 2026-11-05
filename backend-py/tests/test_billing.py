@@ -350,6 +350,32 @@ async def test_new_riders_start_without_a_plan(client):
     assert blocked.status_code == 403 and blocked.json()["error"]["code"] == "SUBSCRIPTION_REQUIRED"
 
 
+# Everything that costs money per call (Google lookups) or runs the planner. Checked before the body is read.
+PAID_CALLS = [
+    "/api/v1/deliveries/geocode-check", "/api/v1/deliveries/geocode-check-batch", "/api/v1/deliveries/geocode-suggest",
+    "/api/v1/deliveries/geocode-reverse", "/api/v1/routes/build", "/api/v1/routes/0123456789abcdef01234567/optimize",
+    "/api/v1/routes/0123456789abcdef01234567/retry-geocoding", "/api/v2/places/autocomplete", "/api/v2/places/details",
+    "/api/v2/routes/0123456789abcdef01234567/optimize", "/api/v2/navigation/route",
+]
+
+
+async def test_without_a_plan_paid_lookups_and_route_planning_are_refused(client):
+    body, auth = await rider(client, "no-plan-paid@example.com", subscribed=False)
+    for path in PAID_CALLS:
+        res = await client.post(path, headers=auth, json={})
+        assert res.status_code == 403 and res.json()["error"]["code"] == "SUBSCRIPTION_REQUIRED", (path, res.text)
+    # Signing in, Home and the plan screens still work: the app shows the paywall from there.
+    assert (await client.get("/api/v2/rider/home", headers=auth)).status_code == 200
+    assert (await client.get("/api/v1/subscriptions/me", headers=auth)).status_code == 200
+
+    await db.subscription.update_many(where={"userId": body["user"]["id"]}, data={"status": "expired", "currentPeriodEnd": now() - timedelta(days=1)})
+    res = await client.post("/api/v2/places/autocomplete", headers=auth, json={})
+    assert res.status_code == 403 and res.json()["error"]["code"] == "SUBSCRIPTION_EXPIRED"
+
+    _, paid = await rider(client, "plan-paid@example.com")
+    assert (await client.post("/api/v1/deliveries/geocode-check", headers=paid, json={})).status_code == 400  # past the gate: body checked
+
+
 async def test_store_trial_length_follows_the_admin_setting(client):
     from app.services.settings_service import update_settings
 

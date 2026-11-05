@@ -124,6 +124,49 @@ async def test_our_osrm_has_no_60_point_cap(client, monkeypatch):
         routing_service.set_matrix_for_tests()
 
 
+def test_each_vehicle_has_its_own_map(monkeypatch):
+    monkeypatch.setattr(routing_service, "env", dataclasses.replace(
+        routing_service.env, OSRM_URL="http://osrm.test", OSRM_PROFILE="bike", OSRM_CAR_URL="http://osrm-car.test", OSRM_CAR_PROFILE="car"))
+    assert routing_service._osrm_target() == ("http://osrm.test", "bike")
+    token = routing_service.vehicle.set("van")
+    try:
+        assert routing_service._osrm_target() == ("http://osrm-car.test", "car")
+        assert routing_service._travel_mode()["travelMode"] == "DRIVE"
+        # Without a car map a van is never routed on the bike data.
+        monkeypatch.setattr(routing_service, "env", dataclasses.replace(routing_service.env, OSRM_CAR_URL=""))
+        assert routing_service._osrm_target()[0] == ""
+    finally:
+        routing_service.vehicle.reset(token)
+
+
+async def test_a_van_route_is_planned_on_the_car_map(client, monkeypatch):
+    _, auth = await rider(client, "p6-van@example.com")
+    seen = []
+
+    async def fake_vroom(request: dict) -> dict:
+        seen.append(request["vehicles"][0]["profile"])
+        steps = [{"type": "start"}] + [{"type": "job", "id": j["id"], "distance": 500 * (k + 1), "duration": 90 * (k + 1)} for k, j in enumerate(request["jobs"])]
+        return {"code": 0, "routes": [{"steps": steps}], "unassigned": []}
+
+    monkeypatch.setattr(optimizer, "_vroom_url", lambda: "http://vroom.test")
+    monkeypatch.setattr(optimizer, "_post_vroom", fake_vroom)
+    monkeypatch.setattr(optimizer, "env", dataclasses.replace(optimizer.env, OSRM_CAR_URL="http://osrm-car.test"))
+    created = (await client.post("/api/v2/deliveries/batch", headers=auth, json={"items": [item(i) for i in range(10)]})).json()["data"]["stops"]
+    ids = [s["id"] for s in created]
+    res = await client.post("/api/v1/routes/build", headers=auth, json={"deliveryIds": ids, "vehicle": "van"})
+    assert res.status_code == 201, res.text
+    route = res.json()["data"]
+    assert route["vehicle"] == "van" and seen == ["car"]
+    assert (await client.get(f"/api/v2/routes/{route['id']}", headers=auth)).json()["data"]["vehicle"] == "van"
+
+    # The same stops by bike: VROOM's bike profile. Without the car map, a van does not use VROOM (it has bike data only).
+    assert (await client.post("/api/v1/routes/build", headers=auth, json={"deliveryIds": ids})).json()["data"]["vehicle"] == "bike"
+    monkeypatch.setattr(optimizer, "env", dataclasses.replace(optimizer.env, OSRM_CAR_URL=""))
+    van = (await client.post("/api/v1/routes/build", headers=auth, json={"deliveryIds": ids, "vehicle": "van"})).json()["data"]
+    assert van["vehicle"] == "van" and seen == ["car", "bike"]
+    assert (await client.post("/api/v1/routes/build", headers=auth, json={"deliveryIds": ids, "vehicle": "truck"})).status_code == 400
+
+
 async def test_route_line_comes_from_our_osrm_once_per_route_version(client):
     import uuid
 
