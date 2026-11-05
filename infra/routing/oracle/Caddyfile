@@ -1,5 +1,6 @@
 # HTTPS + basic auth in front of OSRM and VROOM, which have no login of their own.
 #   https://<ROUTING_HOST>/osrm/...   -> osrm:5000   (the backend's OSRM_URL ends in /osrm)
+#   https://<ROUTING_HOST>/osrm-car/... -> osrm-car:5000 (vans: the backend's OSRM_CAR_URL ends in /osrm-car)
 #   https://<ROUTING_HOST>/vroom      -> vroom:3000  (the backend's VROOM_URL ends in /vroom)
 # The backend puts the user and password in those URLs (https://user:password@host/osrm); its HTTP client sends them
 # as basic auth, so no backend change is needed.
@@ -14,6 +15,11 @@
 	# OSRM: /osrm/table/v1/bike/... -> /table/v1/bike/...
 	handle_path /osrm/* {
 		reverse_proxy osrm:5000
+	}
+
+	# The car map for vans: /osrm-car/table/v1/car/... -> osrm-car's /table/v1/car/...
+	handle_path /osrm-car/* {
+		reverse_proxy osrm-car:5000
 	}
 
 	# VROOM takes its problems as POST /. The backend posts to .../vroom (no trailing slash).

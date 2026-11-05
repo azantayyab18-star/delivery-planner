@@ -69,6 +69,15 @@ Then:
 It downloads the extract and builds the routing data. The files are named `data/ireland.osrm*` whatever the region (the script's name comes from the first Ireland-only
 version); the services below expect that name.
 
+Then the same map for **vans** (the car profile: roads open to cars, one-way streets, no cycle paths), in `data-car/`.
+It reuses the extract already downloaded and takes about as long as the first build:
+
+```bash
+OSRM_PROFILE=car OSRM_DATA_DIR=data-car ./scripts/prepare-ireland.sh
+```
+
+Riders pick Bike or Van before each route is planned; a van route is planned and navigated on this map.
+
 ## 4. Start OSRM, VROOM and Caddy
 
 Pick the public name. Without a domain, use the IP through **sslip.io** (free, nothing to register):
@@ -91,6 +100,9 @@ docker compose logs -f caddy     # wait for "certificate obtained successfully",
 # OSRM: a short ride in central Dublin -> "code":"Ok"
 curl -u routify:YourLongPassword123 "https://140-238-12-34.sslip.io/osrm/route/v1/bike/-6.2603,53.3498;-6.2550,53.3440?overview=false"
 
+# The van map: the same trip by car -> "code":"Ok" (usually longer: one-way streets, no cycle lanes)
+curl -u routify:YourLongPassword123 "https://140-238-12-34.sslip.io/osrm-car/route/v1/car/-6.2603,53.3498;-6.2550,53.3440?overview=false"
+
 # VROOM: a sample problem -> "code":0
 curl -u routify:YourLongPassword123 -X POST "https://140-238-12-34.sslip.io/vroom" \
   -H "Content-Type: application/json" -d @../bench/sample-vroom.json
@@ -110,8 +122,12 @@ curl -o /dev/null -w "%{http_code}\n" "https://140-238-12-34.sslip.io/osrm/route
 | `OSRM_PROFILE` | `bike` |
 | `VROOM_URL` | `https://routify:YourLongPassword123@140-238-12-34.sslip.io/vroom` |
 | `VROOM_PROFILE` | `bike` |
+| `OSRM_CAR_URL` | `https://routify:YourLongPassword123@140-238-12-34.sslip.io/osrm-car` |
 
-The same five lines go in `backend-py/.env` to use it from a local backend. Without `VROOM_URL` the backend orders
+Without `OSRM_CAR_URL`, van routes are never planned on the bike map: their stops are ordered by straight-line
+distance. Google is only used for address search.
+
+The same lines go in `backend-py/.env` to use it from a local backend. Without `VROOM_URL` the backend orders
 stops with its own optimiser on OSRM's road distances; with it, VROOM does (and the backend falls back to its own
 optimiser if VROOM is down).
 
@@ -121,7 +137,7 @@ optimiser if VROOM is down).
 |---|---|
 | Status | `docker compose -f oracle/docker-compose.yml ps` |
 | Logs | `docker compose -f oracle/docker-compose.yml logs -f osrm` |
-| Refresh the map (monthly) | `REFRESH=1 ./scripts/prepare-ireland.sh && docker compose -f oracle/docker-compose.yml restart osrm` |
+| Refresh the map (monthly) | `REFRESH=1 ./scripts/prepare-ireland.sh && OSRM_PROFILE=car OSRM_DATA_DIR=data-car ./scripts/prepare-ireland.sh && docker compose -f oracle/docker-compose.yml restart osrm osrm-car` |
 | Change the password | new hash in `oracle/.env`, `docker compose -f oracle/docker-compose.yml up -d caddy`, update Render's URLs |
 | Stop everything | `docker compose -f oracle/docker-compose.yml down` |
 

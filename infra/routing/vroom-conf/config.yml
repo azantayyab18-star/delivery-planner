@@ -15,14 +15,15 @@ cliArgs:
   router: 'osrm'
   timeout: 300000 # ms
   baseurl: '/'
-# Every vehicle profile name goes to the one OSRM instance; it answers with the profile it was built with (OSRM_PROFILE).
+# Bikes go to the OSRM built with the bicycle profile; vans ("car") to the one built with the car profile (osrm-car in
+# oracle/docker-compose.yml). The backend only asks for "car" when OSRM_CAR_URL is set, i.e. when osrm-car exists.
 routingServers:
   osrm:
     bike:
       host: 'osrm'
       port: '5000'
     car:
-      host: 'osrm'
+      host: 'osrm-car'
       port: '5000'
     foot:
       host: 'osrm'

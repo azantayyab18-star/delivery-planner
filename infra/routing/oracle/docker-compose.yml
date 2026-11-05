@@ -5,7 +5,8 @@
 #   cd infra/routing/oracle && cp .env.example .env   # fill in ROUTING_HOST, the user and the password hash
 #   docker compose up -d
 #
-# Map data: ../data/ireland.osrm*, built once with ../scripts/prepare-ireland.sh (see README.md for Britain + Ireland).
+# Map data: ../data/ireland.osrm* (bicycle) and ../data-car/ireland.osrm* (car, for vans), each built once with
+# ../scripts/prepare-ireland.sh (see README.md for Britain + Ireland).
 services:
   osrm:
     image: ${OSRM_IMAGE:-ghcr.io/project-osrm/osrm-backend:v26.4.0}
@@ -15,15 +16,25 @@ services:
       - ../data:/data:ro
     restart: unless-stopped
 
+  # Vans: the same map built with the car profile (roads open to cars, one-way streets, no cycle paths).
+  osrm-car:
+    image: ${OSRM_IMAGE:-ghcr.io/project-osrm/osrm-backend:v26.4.0}
+    command: osrm-routed --algorithm mld --max-table-size ${OSRM_MAX_TABLE_SIZE:-2500} /data/ireland.osrm
+    volumes:
+      - ../data-car:/data:ro
+    restart: unless-stopped
+
   vroom:
     image: ${VROOM_IMAGE:-ghcr.io/vroom-project/vroom-docker:v1.14.0}
-    # vroom-express on 3000; its road times come from the osrm service above (vroom-conf/config.yml: host "osrm").
+    # vroom-express on 3000; its road times come from the osrm services above (vroom-conf/config.yml: profile "bike"
+    # -> osrm, "car" -> osrm-car).
     environment:
       VROOM_ROUTER: osrm
     volumes:
       - ../vroom-conf:/conf
     depends_on:
       - osrm
+      - osrm-car
     restart: unless-stopped
 
   caddy:
@@ -42,6 +53,7 @@ services:
       - caddy_config:/config
     depends_on:
       - osrm
+      - osrm-car
       - vroom
     restart: unless-stopped
 
