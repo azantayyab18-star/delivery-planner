@@ -6,7 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Screen } from '../components/Kit';
 import { type McName } from '../components/Premium';
 import { LightButton, LightError } from '../components/LightKit';
-import { get, post, ApiRequestError } from '../lib/api';
+import { get, postPlan, ApiRequestError } from '../lib/api';
 import { fetchRoute } from '../lib/v2api';
 import { getRouteOrigin } from '../lib/location';
 import { dayLabel, formatMinutes, stopCardText } from '../lib/format';
@@ -82,7 +82,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
     try {
       const origin = await getRouteOrigin();
       const open = route.stops.filter((stop) => stop.delivery.status === 'pending').map((stop) => stop.delivery.id);
-      const built = await post<Route>('/routes/build', { name: route.name, date: route.serviceDate, preference: key, deliveryIds: open, ...(origin ? { origin } : {}) });
+      const built = await postPlan<Route>('/routes/build', { name: route.name, date: route.serviceDate, preference: key, deliveryIds: open, ...(origin ? { origin } : {}) });
       showRoute(built.data);
       setCurrentId(built.data.id);
     } catch (err) {
@@ -99,7 +99,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
     setError('');
     try {
       const origin = await getRouteOrigin();
-      showRoute((await post<Route>(`/routes/${route.id}/optimize`, origin ? { origin } : {})).data);
+      showRoute((await postPlan<Route>(`/routes/${route.id}/optimize`, origin ? { origin } : {})).data);
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : 'Could not optimise the route');
     } finally {
@@ -114,7 +114,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
     setError('');
     try {
       const origin = await getRouteOrigin();
-      const built = await post<Route>('/routes/build', { name, date, preference, deliveryIds: stops.map((d) => d.id), ...(origin ? { origin } : {}) });
+      const built = await postPlan<Route>('/routes/build', { name, date, preference, deliveryIds: stops.map((d) => d.id), ...(origin ? { origin } : {}) });
       void forgetRouteName(date);
       // The map drops the numbered pins in route order. Back from there returns Home, not to this form.
       resetTo('RouteMapScreen', { reveal: true, routeId: built.data.id });

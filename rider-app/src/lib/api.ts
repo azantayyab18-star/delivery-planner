@@ -229,6 +229,12 @@ export { randomUUID as newId } from 'expo-crypto';
 
 export const get = <T,>(path: string, query?: Options['query']) => api<T>(path, { query });
 export const post = <T,>(path: string, body?: unknown, signal?: AbortSignal) => api<T>(path, { method: 'POST', body, signal });
+/**
+ * Planning a route (build / optimise): the server waits up to PLAN_JOB_WAIT_SECONDS (90 s) for the worker's plan, and a
+ * 150-200 stop route can take most of that, so the app waits longer than an ordinary request instead of giving up.
+ */
+const PLAN_TIMEOUT_MS = 120_000;
+export const postPlan = <T,>(path: string, body?: unknown) => api<T>(path, { method: 'POST', body, timeoutMs: PLAN_TIMEOUT_MS });
 export const patch = <T,>(path: string, body?: unknown) => api<T>(path, { method: 'PATCH', body });
 export const put = <T,>(path: string, body?: unknown) => api<T>(path, { method: 'PUT', body });
 export const del = <T,>(path: string) => api<T>(path, { method: 'DELETE' });

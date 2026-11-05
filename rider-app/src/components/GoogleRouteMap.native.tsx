@@ -62,6 +62,14 @@ const LIGHT_MARKER_COLORS: Record<MapStop['kind'], { bg: string; fg: string; bor
   failed: { bg: l.danger, fg: '#fff', border: '#fff' },
 };
 
+// Farther than this from every stop, the rider's position is left out of the view and the line (still shown as a dot).
+const NEAR_ROUTE_KM = 50;
+const kmApart = (a: Coordinates, b: Coordinates) => {
+  const rad = (d: number) => (d * Math.PI) / 180;
+  const h = Math.sin(rad(b.latitude - a.latitude) / 2) ** 2 + Math.cos(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.sin(rad(b.longitude - a.longitude) / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+};
+
 export default function GoogleRouteMap({ stops: allStops, position, path, order, focus, style, pinning, onCenterChange, initialCenter, reveal, follow, heading, light, maxStops }: GoogleRouteMapProps) {
   const stops = useMemo(() => visibleStops(allStops, maxStops), [allStops, maxStops]);
   const line = light ? l.link : c.primary;
@@ -70,10 +78,15 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
   // Once the rider pans or zooms, automatic fitting stops until they tap the fit button.
   const userMoved = useRef(false);
   const layoutTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The rider only frames the view and starts the dashed line when they are near the route. Someone far away (a
+  // dispatcher, a tester in another country, a route planned the night before at home) would otherwise zoom the map out
+  // to a continent and draw a line across it; their blue dot is still drawn.
+  const near = !!position && (!allStops.length || allStops.some((st) => kmApart(st, position) <= NEAR_ROUTE_KM));
+  const framing = near ? position : null;
 
-  // Every marker (all stops and the rider) in view.
+  // Every marker (all stops, and the rider when near) in view.
   const fit = (animated: boolean) => {
-    const all = [...stops, ...(position ? [position] : [])];
+    const all = [...stops, ...(framing ? [framing] : [])];
     if (all.length > 1) map.current?.fitToCoordinates(all, { edgePadding: EDGE, animated });
     else if (all.length) map.current?.animateCamera({ center: all[0], zoom: 15 }, { duration: animated ? 400 : 0 });
   };
@@ -109,7 +122,7 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
     map.current?.animateCamera({ center: position, zoom: 17, heading: heading ?? 0, pitch: 35 }, { duration: 600 });
   }, [ready, follow, position, heading]);
 
-  const start = position || stops[0] || initialCenter || { latitude: 0, longitude: 0 };
+  const start = framing || stops[0] || position || initialCenter || { latitude: 0, longitude: 0 };
   const shown = reveal == null ? stops : stops.slice(0, reveal);
   const revealing = reveal != null && reveal < stops.length;
 
@@ -137,8 +150,8 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
 
         {revealing ? null : path.length > 1 ? (
           <Polyline coordinates={path} strokeColor={line} strokeWidth={5} />
-        ) : order.length > 1 || (position && order.length) ? (
-          <Polyline coordinates={position ? [position, ...order] : order} strokeColor={line} strokeWidth={3} lineDashPattern={[10, 8]} />
+        ) : order.length > 1 || (framing && order.length) ? (
+          <Polyline coordinates={framing ? [framing, ...order] : order} strokeColor={line} strokeWidth={3} lineDashPattern={[10, 8]} />
         ) : null}
 
         {shown.map((st) => (

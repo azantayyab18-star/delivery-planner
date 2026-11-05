@@ -4,7 +4,7 @@ import { FlashList, type FlashListRef } from '@shopify/flash-list';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { useIsFocused } from '@react-navigation/native';
-import { get, post, ApiRequestError } from '../lib/api';
+import { get, post, postPlan, ApiRequestError } from '../lib/api';
 import { decodePolyline } from '../lib/polyline';
 import { openDirections as directionsTo } from '../lib/deliveryActions';
 import { dayLabel, formatMinutes, stopLabel, todayKey } from '../lib/format';
@@ -149,12 +149,15 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
 
   const load = routeQuery.refetch;
 
-  const start = anchor || route?.origin || null;
+  // The first leg starts from the rider only when they are near the route (see GoogleRouteMap's NEAR_ROUTE_KM).
+  const firstStop = route?.stops.find((stop) => isOpen(stop) && coordsOf(stop));
+  const firstAt = firstStop ? coordsOf(firstStop) : null;
+  const start = (anchor && (!firstAt || kmBetween(anchor, firstAt) <= 50) ? anchor : null) || route?.origin || null;
 
   // Re-orders the open stops nearest-next (by road distance) from where the rider is.
   const optimize = useCallback(async (current: Route) => {
     try {
-      setRoute((await post<Route>(`/routes/${current.id}/optimize`, anchor ? { origin: anchor } : {})).data);
+      setRoute((await postPlan<Route>(`/routes/${current.id}/optimize`, anchor ? { origin: anchor } : {})).data);
       setError('');
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : 'Could not optimise the route');
@@ -315,16 +318,18 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
     );
   }
 
-  const leftKm = roadNow ? roadNow.km : legs.reduce((a, l) => a + l.km, 0);
-  const total = ordered.length + unmapped.length;
   const planned = route.status === 'planned';
+  // Before the road line arrives a planned route shows the totals the server planned, not a guess from the phone's GPS
+  // (which, far from the stops, added a straight line across countries for a moment and then jumped).
+  const leftKm = roadNow ? roadNow.km : planned && route.distanceKm > 0 ? route.distanceKm : legs.reduce((a, l) => a + l.km, 0);
+  const total = ordered.length + unmapped.length;
   const timeLeft = roadNow ? formatMinutes(roadNow.min) : legs.some((l) => l.road) ? formatMinutes(legs.reduce((a, l) => a + l.min, 0)) : route.durationMin > 0 && planned ? formatMinutes(route.durationMin) : '—';
   // Before the start: the whole route, like the design. Underway: what is left. Finished: what was done.
   const stats = route.status === 'completed'
     ? [{ value: `${route.progress.done}/${route.progress.total}`, label: 'stops done' }, { value: `${route.distanceKm} km`, label: 'distance' }, { value: '—', label: 'remaining' }]
     : [
       { value: String(planned ? route.progress.total : total), label: planned ? 'stops' : 'stops left' },
-      { value: `${roadNow ? '' : '~'}${leftKm < 10 ? leftKm.toFixed(1) : Math.round(leftKm)} km`, label: planned ? 'distance' : 'left to drive' },
+      { value: `${roadNow || (planned && route.optimization === 'road') ? '' : '~'}${leftKm < 10 ? leftKm.toFixed(1) : Math.round(leftKm)} km`, label: planned ? 'distance' : 'left to drive' },
       { value: timeLeft, label: planned ? 'est. time' : 'remaining' },
     ];
 
