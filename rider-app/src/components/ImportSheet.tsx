@@ -1,5 +1,6 @@
-import { memo, useCallback, useRef, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import * as DocumentPicker from 'expo-document-picker';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -74,6 +75,8 @@ function ImportBody({ date, stops, near, onClose, onImported }: Omit<Props, 'vis
   const [phase, setPhase] = useState<Phase>({ kind: 'pick' });
   const [problems, setProblems] = useState<Problem[]>([]);
   const [error, setError] = useState('');
+  // "Check all again": how far the batch re-check of every open row has got (null when it is not running).
+  const [bulk, setBulk] = useState<{ done: number; total: number } | null>(null);
   // Stops saved during this import, for the duplicate check of rows fixed later.
   const saved = useRef<Delivery[]>([]);
   const added = (created: Delivery[]) => { saved.current = [...saved.current, ...created]; onImported(created); };
@@ -179,7 +182,65 @@ function ImportBody({ date, stops, near, onClose, onImported }: Omit<Props, 'vis
     }
   };
 
+  /**
+   * Check all again: every open row is looked up again in batches of 100 (one request per batch, not one per row);
+   * the ones the map now places at the door are added together, the rest keep their card with the new reason.
+   */
+  const recheckAll = async () => {
+    const todo = problems.filter((p) => p.state === 'open');
+    if (!todo.length || bulk) return;
+    const keys = new Set(todo.map((p) => p.key));
+    setError('');
+    setProblems((list) => list.map((p) => (keys.has(p.key) ? { ...p, state: 'busy', error: '' } : p)));
+    setBulk({ done: 0, total: todo.length });
+    const askable = todo.filter((p) => p.address.trim().length >= 5);
+    let checks: AddressCheck[] = [];
+    try {
+      checks = await checkAddresses(askable.map((p) => lookupText(p.address)), near, (done) => setBulk({ done, total: todo.length }));
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : 'Could not check the addresses. Check your connection and try again.');
+    }
+    const checkOf = new Map(askable.map((p, i) => [p.key, checks[i] ?? null]));
+    const accepted: (Accepted & { parcel: string })[] = [];
+    const ready: { p: Problem; point: Point; normalized: string | null }[] = [];
+    const verdicts = new Map<string, Partial<Problem>>();
+    for (const p of todo) {
+      const verdict = checkRow(p.address, checkOf.get(p.key) ?? null, known(), accepted);
+      if (verdict.status === 'ready') {
+        accepted.push({ id: p.key, raw: p.address, normalized: verdict.normalized, eircode: verdict.eircode, point: verdict.point, precise: verdict.precise, parcel: p.parcel });
+        ready.push({ p, point: verdict.point, normalized: verdict.normalized });
+      } else {
+        verdicts.set(p.key, { state: 'open', issue: verdict.issue, detail: verdict.detail, check: verdict.check, edited: false });
+      }
+    }
+    // The rows that passed are saved together; if the server refuses the batch, one by one so only the refused wait.
+    const news = ready.map(({ p, point, normalized }) => toNewStop(p.address, p.parcel, date, point, normalized));
+    try {
+      if (news.length) added(await submitStops(news));
+      for (const { p } of ready) verdicts.set(p.key, { state: 'added', error: '' });
+    } catch {
+      for (let i = 0; i < ready.length; i += 1) {
+        try {
+          added(await submitStops([news[i]]));
+          verdicts.set(ready[i].p.key, { state: 'added', error: '' });
+        } catch (err) {
+          verdicts.set(ready[i].p.key, { state: 'open', error: err instanceof ApiRequestError ? err.message : 'Could not add this stop.' });
+        }
+      }
+    }
+    setProblems((list) => list.map((p) => (verdicts.has(p.key) ? { ...p, ...verdicts.get(p.key) } : p)));
+    setBulk(null);
+  };
+
+  // The cards get handlers that never change, so a card is only drawn again when its own row changes (not on every
+  // keystroke in another row): the latest recheck/accept are read through a ref.
+  const actions = useRef({ recheck, accept });
+  useEffect(() => { actions.current = { recheck, accept }; });
+  const onRecheck = useCallback((p: Problem) => void actions.current.recheck(p), []);
+  const onAccept = useCallback((p: Problem) => void actions.current.accept(p), []);
+
   const open = problems.filter((p) => p.state === 'open' || p.state === 'busy').length;
+  const checkable = problems.filter((p) => p.state === 'open').length;
   const fixedCount = problems.filter((p) => p.state === 'added').length;
 
   return (
@@ -211,29 +272,51 @@ function ImportBody({ date, stops, near, onClose, onImported }: Omit<Props, 'vis
           ) : null}
         </View>
       ) : (
-        <KeyboardAwareScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: insets.bottom + 120 }}>
-          <View style={s.summary}>
-            <Summary icon="check-circle" tone={c.success} value={phase.added + fixedCount} label="added" />
-            <Summary icon="alert-circle" tone={open ? c.warning : c.textSecondary} value={open} label={open === 1 ? 'needs a fix' : 'need a fix'} />
-            <Summary icon="file-document-outline" tone={c.textSecondary} value={phase.total} label="in the file" />
-          </View>
-          <LightError text={error} />
-          {problems.length ? (
-            <>
+        problems.length ? (
+          // Only the cards on screen are drawn (a file can have hundreds of rows); typing stays clear of the keyboard.
+          <FlashList
+            data={problems}
+            keyExtractor={(p) => p.key}
+            renderScrollComponent={KeyboardAwareScrollView}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: insets.bottom + 120 }}
+            ItemSeparatorComponent={Gap}
+            renderItem={({ item }) => <ProblemCard p={item} onEdit={patch} onRecheck={onRecheck} onAccept={onAccept} />}
+            ListHeaderComponent={<>
+              <View style={s.summary}>
+                <Summary icon="check-circle" tone={c.success} value={phase.added + fixedCount} label="added" />
+                <Summary icon="alert-circle" tone={open ? c.warning : c.textSecondary} value={open} label={open === 1 ? 'needs a fix' : 'need a fix'} />
+                <Summary icon="file-document-outline" tone={c.textSecondary} value={phase.total} label="in the file" />
+              </View>
+              <LightError text={error} />
               <Text style={s.section}>Check these before they are added</Text>
               <Text style={[s.body, { textAlign: 'left', marginBottom: 12 }]}>Fix the address and check again, use what the map found, or skip the stop.</Text>
-              <View style={{ gap: 12 }}>
-                {problems.map((p) => <ProblemCard key={p.key} p={p} onEdit={patch} onRecheck={recheck} onAccept={accept} />)}
-              </View>
-            </>
-          ) : (
+              {checkable || bulk ? (
+                <View style={{ marginBottom: 16 }}>
+                  <LightButton
+                    title={bulk ? `Checking ${bulk.done} of ${bulk.total}…` : `Check all again · ${checkable}`}
+                    icon={bulk ? undefined : <Ionicons name="refresh" size={20} color={c.onInk} />}
+                    loading={!!bulk} disabled={!!bulk} onPress={() => void recheckAll()} />
+                  {bulk ? <LightProgress progress={bulk.total ? (bulk.done / bulk.total) * 100 : 0} style={{ marginTop: 10 }} /> : null}
+                </View>
+              ) : null}
+            </>}
+          />
+        ) : (
+          <ScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: insets.bottom + 120 }}>
+            <View style={s.summary}>
+              <Summary icon="check-circle" tone={c.success} value={phase.added + fixedCount} label="added" />
+              <Summary icon="alert-circle" tone={c.textSecondary} value={0} label="need a fix" />
+              <Summary icon="file-document-outline" tone={c.textSecondary} value={phase.total} label="in the file" />
+            </View>
+            <LightError text={error} />
             <View style={[s.center, { flex: 0, paddingTop: 32 }]}>
               <View style={[s.art, { backgroundColor: c.successBg }]}><Ionicons name="checkmark" size={44} color={c.success} /></View>
               <Text style={s.lead}>All {phase.added} stops added</Text>
               <Text style={s.body}>Every address was found on the map.</Text>
             </View>
-          )}
-        </KeyboardAwareScrollView>
+          </ScrollView>
+        )
       )}
 
       {phase.kind === 'review' ? (
@@ -244,6 +327,8 @@ function ImportBody({ date, stops, near, onClose, onImported }: Omit<Props, 'vis
     </View>
   );
 }
+
+const Gap = () => <View style={{ height: 12 }} />;
 
 function Summary({ icon, tone, value, label }: { icon: 'check-circle' | 'alert-circle' | 'file-document-outline'; tone: string; value: number; label: string }) {
   return (

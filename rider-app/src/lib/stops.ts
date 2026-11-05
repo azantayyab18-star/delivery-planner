@@ -1,4 +1,4 @@
-import { post } from './api';
+import { api, post } from './api';
 import { findDuplicate, type Duplicate } from './duplicates';
 import { findEircode } from './format';
 import type { Delivery, GeocodeCheck } from './types';
@@ -12,21 +12,38 @@ export async function checkAddress(address: string, near: Point | null): Promise
   return (await post<GeocodeCheck>('/deliveries/geocode-check', { address, ...(near || {}) })).data;
 }
 
-/** As many addresses as one batch check takes (the server's limit, the same as one bulk add). */
-const CHECK_BATCH = 100;
+/**
+ * Addresses per batch check. Small batches each finish well inside the time limit even when the server is far from its
+ * database or the map provider is slow (a 100-address batch could take over a minute), and the progress bar moves.
+ */
+const CHECK_BATCH = 25;
+// A batch waits on up to 25 map lookups: longer than an ordinary request may take.
+const CHECK_TIMEOUT_MS = 120_000;
+const NOT_CHECKED: AddressCheck = { found: false, approximate: false, latitude: null, longitude: null, normalized: null, postalCode: null, error: true };
 
 /**
- * Looks many addresses up without saving anything (Import), in batches of 100 so `onProgress` can move a bar. Each
- * result lines up with its address; one the map could not be asked about has `error: true`.
+ * Looks many addresses up without saving anything (Import), in batches so `onProgress` can move a bar. Each result
+ * lines up with its address; one the map could not be asked about has `error: true`. A batch that fails (timeout, a
+ * dropped connection) marks only its own addresses `error`, so the rest are still checked; only when every batch fails
+ * is the error thrown, so the screen can say why.
  */
 export async function checkAddresses(addresses: readonly string[], near: Point | null, onProgress?: (done: number) => void): Promise<AddressCheck[]> {
   const out: AddressCheck[] = [];
+  let lastError: unknown = null;
+  let anyChecked = false;
   for (let i = 0; i < addresses.length; i += CHECK_BATCH) {
     const chunk = addresses.slice(i, i + CHECK_BATCH);
-    const res = await post<{ results: AddressCheck[] }>('/deliveries/geocode-check-batch', { addresses: chunk, ...(near || {}) });
-    out.push(...res.data.results);
+    try {
+      const res = await api<{ results: AddressCheck[] }>('/deliveries/geocode-check-batch', { method: 'POST', body: { addresses: chunk, ...(near || {}) }, timeoutMs: CHECK_TIMEOUT_MS });
+      out.push(...res.data.results);
+      anyChecked = true;
+    } catch (err) {
+      lastError = err;
+      out.push(...chunk.map(() => NOT_CHECKED));
+    }
     onProgress?.(out.length);
   }
+  if (!anyChecked && lastError) throw lastError;
   return out;
 }
 
