@@ -1,0 +1,51 @@
+# Development routing server on Oracle Cloud (Ampere A1, ARM64): OSRM + VROOM behind Caddy.
+# The FastAPI backend stays on Render and reaches both over HTTPS with a username and password; OSRM and VROOM are
+# never published on their own ports. Both images are multi-arch (amd64 + arm64).
+#
+#   cd infra/routing/oracle && cp .env.example .env   # fill in ROUTING_HOST, ACME_EMAIL, the user and password hash
+#   docker compose up -d
+#
+# Map data: ../data/ireland.osrm*, built once with ../scripts/prepare-ireland.sh (see README.md for Britain + Ireland).
+services:
+  osrm:
+    image: ${OSRM_IMAGE:-ghcr.io/project-osrm/osrm-backend:v26.4.0}
+    # MLD pairs with osrm-partition/osrm-customize. 2500 points per table: routes of 150-2000 stops in one request.
+    command: osrm-routed --algorithm mld --max-table-size ${OSRM_MAX_TABLE_SIZE:-2500} /data/ireland.osrm
+    volumes:
+      - ../data:/data:ro
+    restart: unless-stopped
+
+  vroom:
+    image: ${VROOM_IMAGE:-ghcr.io/vroom-project/vroom-docker:v1.14.0}
+    # vroom-express on 3000; its road times come from the osrm service above (vroom-conf/config.yml: host "osrm").
+    environment:
+      VROOM_ROUTER: osrm
+    volumes:
+      - ../vroom-conf:/conf
+    depends_on:
+      - osrm
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8.4
+    # The only service with public ports: HTTPS (Let's Encrypt certificate for ROUTING_HOST) and 80 for the challenge.
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      ROUTING_HOST: ${ROUTING_HOST:?set ROUTING_HOST in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+      ROUTING_USER: ${ROUTING_USER:?set ROUTING_USER in .env}
+      ROUTING_PASSWORD_HASH: ${ROUTING_PASSWORD_HASH:?set ROUTING_PASSWORD_HASH in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - osrm
+      - vroom
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:
