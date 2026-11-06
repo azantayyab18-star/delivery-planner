@@ -228,3 +228,26 @@ async def test_navigation_reroutes_through_the_backend(client):
     finally:
         routing_service.set_route_for_tests()
     assert (await client.post("/api/v2/navigation/route", headers=auth, json={"start": {"latitude": 99, "longitude": 0}, "target": {"latitude": 1, "longitude": 1}})).status_code == 400
+
+
+async def test_a_start_far_from_the_stops_is_left_out_of_the_line(client):
+    """Planned with the phone in another country: the line runs through the stops only, no 6,000 km first leg."""
+    _, auth = await rider(client, "p6-far-start@example.com")
+    created = (await client.post("/api/v2/deliveries/batch", headers=auth, json={"items": [item(i) for i in range(3)]})).json()["data"]["stops"]
+    ids = [s["id"] for s in created]
+    seen = []
+
+    async def road(points, steps):
+        seen.append(points)
+        return {"path": "_p~iF~ps|U_ulLnnqC", "legs": [{"distanceKm": 1.0, "durationMin": 4.0}] * (len(points) - 1),
+                "distanceKm": float(len(points) - 1), "durationMin": 4.0 * (len(points) - 1)}
+
+    routing_service.set_route_for_tests(road)
+    try:
+        for origin, expected in [({"latitude": 31.52, "longitude": 74.35}, 3), ({"latitude": 53.30, "longitude": -6.30}, 4)]:
+            built = (await client.post("/api/v1/routes/build", headers=auth, json={"deliveryIds": ids, "origin": origin})).json()["data"]
+            line = (await client.get(f"/api/v2/routes/{built['id']}/geometry", headers=auth)).json()["data"]
+            assert len(seen[-1]) == expected and len(line["legs"]) == 3
+            assert (seen[-1][0]["latitude"] == 53.30) == (expected == 4)
+    finally:
+        routing_service.set_route_for_tests()

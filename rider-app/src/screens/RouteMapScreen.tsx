@@ -28,6 +28,9 @@ type Stop = Route['stops'][number];
 type StepKind = 'done' | 'failed' | 'current' | 'upcoming';
 type Leg = { km: number; min: number; road: boolean };
 
+// When the road line does not arrive, it is asked for again after these waits (then on the next visit).
+const LINE_RETRY_MS = [3000, 10000, 30000];
+
 /** GET /v2/routes/{id}/geometry: the route's road line (encoded polyline) and each open stop's leg; path null without a router. */
 type RouteGeometry = { path: string | null; legs: { stopId: string; distanceKm: number; durationMin: number }[]; distanceKm: number | null; durationMin: number | null };
 // Re-request the road path only after the rider has moved this far from where it was last drawn.
@@ -197,25 +200,39 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
   // The road line and each stop's road distance come from our API (our own OSRM, one line per route version, P6b.4):
   // the app never calls an OSRM server itself. Without a road router the API answers no line: dashed straight lines stay.
   const routeKey = route ? `${route.id}|${ordered.map((p) => p.stop.delivery.id).join(',')}` : '';
+  // Asked again whenever there is no line for the current order: a few retries after a failed or empty answer (a weak
+  // signal, the server restarting), and on every return to this screen. Never kept on dashed lines for good.
+  const haveLine = !!road && road.key === routeKey;
+  const focused = useIsFocused();
   useEffect(() => {
-    if (!route || !ordered.length) return;
-    const request = ++routeRequest.current;
-    get<RouteGeometry>(`/v2/routes/${route.id}/geometry`)
-      .then(({ data }) => {
-        if (!data.path || request !== routeRequest.current) return;
-        const byStop = new Map(data.legs.map((l) => [l.stopId, l]));
-        setRoad({
-          key: routeKey,
-          path: decodePolyline(data.path),
-          legs: ordered.map((p) => { const l = byStop.get(p.stop.delivery.id); return l ? { km: l.distanceKm, min: l.durationMin, road: true } : undefined; }),
-          km: data.distanceKm ?? 0,
-          min: data.durationMin ?? 0,
+    if (!route || !ordered.length || !focused || haveLine) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const fetchLine = (attempt: number) => {
+      const request = ++routeRequest.current;
+      get<RouteGeometry>(`/v2/routes/${route.id}/geometry`)
+        .then(({ data }) => {
+          if (cancelled || request !== routeRequest.current) return;
+          if (!data.path) throw new Error('No road line yet');
+          const byStop = new Map(data.legs.map((l) => [l.stopId, l]));
+          setRoad({
+            key: routeKey,
+            path: decodePolyline(data.path),
+            legs: ordered.map((p) => { const l = byStop.get(p.stop.delivery.id); return l ? { km: l.distanceKm, min: l.durationMin, road: true } : undefined; }),
+            km: data.distanceKm ?? 0,
+            min: data.durationMin ?? 0,
+          });
+        })
+        .catch(() => {
+          // Straight-line estimates and a dashed line stay on screen meanwhile.
+          if (!cancelled && attempt < LINE_RETRY_MS.length) timer = setTimeout(() => fetchLine(attempt + 1), LINE_RETRY_MS[attempt]);
         });
-      })
-      .catch(() => { /* straight-line estimates and a dashed line stay on screen */ });
-    // routeKey captures everything the request depends on.
+    };
+    fetchLine(0);
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+    // routeKey captures the route and its order (what the request depends on).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeKey]);
+  }, [routeKey, focused, haveLine]);
 
   useEffect(() => () => { routeRequest.current = -1; }, []);
 
