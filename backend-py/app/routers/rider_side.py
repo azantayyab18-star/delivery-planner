@@ -176,6 +176,19 @@ async def get_route(request: Request):
     return respond(await routes.get_by_id(actor, params.id))
 
 
+class DeleteRouteQuery(Schema):
+    # true: the route's open stops stay (unplanned, same day); false: they are deleted with it.
+    keepStops: bool = True
+
+
+@routes_router.delete("/{id}")
+async def delete_route(request: Request):
+    """Deletes a route, also the one underway. Delivered and failed stops always stay in History."""
+    actor = await authenticate(request, "rider")
+    valid = await validate(request, params=IdParams, query=DeleteRouteQuery)
+    return respond(await routes.delete(actor, valid["params"].id, keep_stops=valid["query"].keepStops))
+
+
 @routes_router.post("/{id}/start")
 async def start_route(request: Request):
     actor = await authenticate(request, "rider")

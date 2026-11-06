@@ -9,6 +9,7 @@ import { dayKey, fromDayKey, shortDate, toDayKey, todayKey } from '../lib/format
 import { Screen } from '../components/Kit';
 import { LightButton, LightError } from '../components/LightKit';
 import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/theme';
+import { bigUnit, inBigUnit } from '../lib/units';
 
 type Period = 'week' | 'month';
 type Bar = { key: string; label: string; value: number };
@@ -124,7 +125,7 @@ export default function Reports() {
             <View style={s.grid}>
               <Stat value={String(stats.finished)} label="Deliveries" />
               <Stat value={stats.success == null ? '—' : String(stats.success)} unit={stats.success == null ? undefined : '%'} label="Success rate" />
-              <Stat value={String(Math.round(stats.km))} unit="km" label="Distance" />
+              <Stat value={String(Math.round(inBigUnit(stats.km)))} unit={bigUnit()} label="Distance" />
               <Stat value={hours >= 10 || hours === 0 ? String(Math.round(hours)) : hours.toFixed(1)} unit="h" label="Time on route" />
             </View>
 

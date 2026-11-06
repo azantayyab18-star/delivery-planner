@@ -1,3 +1,5 @@
+import { formatMeters, spokenMeters } from './units';
+
 // Turn-by-turn guidance from our own OSRM's steps (POST /v2/navigation/route): what the next turn is, how far away it
 // is, what to say out loud and when, and whether the rider has left the route. No Google service is involved.
 
@@ -54,18 +56,14 @@ export function instruction(step: Step | undefined): { text: string; icon: Icon 
   return { text: `Continue${onto}`, icon };
 }
 
-/** "200 m", "1.4 km": rounded the way a satnav says it. */
-export function distanceText(m: number) {
-  if (m < 1000) return `${m < 100 ? Math.max(10, Math.round(m / 10) * 10) : Math.round(m / 50) * 50} m`;
-  return `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`;
-}
+/** "200 m", "1.4 km" (or yards and miles): rounded the way a satnav says it. */
+export const distanceText = (m: number) => formatMeters(m);
 
 /** What the voice says: "In 200 metres, turn left onto High Street", or the instruction alone at the turn. */
 export function spoken(step: Step | undefined, meters?: number) {
   const text = instruction(step).text;
   if (meters == null) return text;
-  const words = distanceText(meters).replace(' m', ' metres').replace(' km', ' kilometres');
-  return `In ${words}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
+  return `In ${spokenMeters(meters)}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
 }
 
 /**

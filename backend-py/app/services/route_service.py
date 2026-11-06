@@ -555,6 +555,30 @@ async def left_over(actor: dict, date: str) -> dict:
     return {"total": sum(days.values()), "days": [{"date": k, "count": days[k]} for k in sorted(days, reverse=True)]}
 
 
+async def delete(actor: dict, route_id: str, *, keep_stops: bool) -> dict:
+    """Deletes a route of any status, the one underway too. Its open stops (not yet delivered or failed) are either kept,
+    unplanned on the same day so they can go on another route, or deleted (copies kept in deleted_deliveries). Delivered
+    and failed stops always stay, in History and reports, without the route."""
+    from .delivery_service import archive_deleted  # here: delivery_service imports this module
+
+    _require_rider(actor)
+    async with transaction() as tx:
+        await lock_rider(tx, actor["id"])
+        route = await _find_mine(actor, route_id, tx)
+        open_stops = await tx.delivery.find_many(where={"routeId": route.id, "status": {"in": ["pending", "in_progress"]}})
+        ids = [d.id for d in open_stops]
+        if keep_stops:
+            # An arrived stop goes back to pending: the rider has not delivered it.
+            if ids:
+                await tx.delivery.update_many(where={"id": {"in": ids}}, data={"routeId": None, "stopOrder": None, "status": "pending", "arrivedAt": None})
+        elif open_stops:
+            await archive_deleted(tx, open_stops, "route_deleted")
+            await tx.delivery.delete_many(where={"id": {"in": ids}})
+        # Done stops keep their history; the route link is cleared by the foreign key (ON DELETE SET NULL).
+        await tx.route.delete(where={"id": route.id})
+    return {"deleted": True, "stopsKept": len(ids) if keep_stops else 0, "stopsDeleted": 0 if keep_stops else len(ids)}
+
+
 async def carry_over(actor: dict, date: str, origin: dict | None = None) -> dict:
     """Moves every open stop left from earlier days to `date`, as a route of their own (named after the route they
     were on). Other routes of that day are left alone. Nothing is deleted: the old routes are closed (completed, so

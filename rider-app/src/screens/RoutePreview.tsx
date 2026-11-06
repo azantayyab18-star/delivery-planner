@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -7,7 +7,8 @@ import { Screen } from '../components/Kit';
 import { type McName } from '../components/Premium';
 import { LightButton, LightError } from '../components/LightKit';
 import StartPointSheet, { type StartPoint } from '../components/StartPointSheet';
-import { get, postPlan, ApiRequestError } from '../lib/api';
+import { del, get, postPlan, ApiRequestError } from '../lib/api';
+import { queryClient } from '../lib/query';
 import { fetchRoute } from '../lib/v2api';
 import { getRouteOrigin } from '../lib/location';
 import { dayLabel, formatMinutes, stopCardText } from '../lib/format';
@@ -19,6 +20,7 @@ import { useAuth } from '../lib/auth';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
 import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/theme';
+import { bigUnit, formatKm } from '../lib/units';
 
 export const ROUTE_TYPES: { key: RoutePreference; title: string; text: string; icon: McName }[] = [
   { key: 'smart', title: 'Smartest', text: 'Least total driving time. Stops at the same address are done together.', icon: 'lightbulb-on-outline' },
@@ -33,7 +35,7 @@ export const ROUTE_TYPES: { key: RoutePreference; title: string; text: string; i
  *   and time, and Preview route opens its map (where it is started or navigated). Tapping a stop opens it.
  */
 export default function RoutePreview({ name, date, ids, routeId }: { name?: string; date?: string; ids?: string[]; routeId?: string }) {
-  const { goBack, navigate, resetTo } = useNav();
+  const { goBack, navigate, resetTo, resetTab } = useNav();
   const { user } = useAuth();
   const [stops, setStops] = useState<Delivery[] | null>(null);
   const [preference, setPreference] = useState<RoutePreference>(user?.routePreference || 'smart');
@@ -44,6 +46,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
   const [currentId, setCurrentId] = useState(routeId);
   const [route, setRoute] = useState<Route | null>(null);
   const [reordering, setReordering] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const existing = !!routeId;
   // Bike or van: asked each time a route is planned (the last choice is ticked), and shown on a planned route.
   const [vehicle, setVehicle] = useState<Vehicle>('bike');
@@ -53,6 +56,8 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
   const [start, setStart] = useState<StartPoint | null>(null);
   const [askStart, setAskStart] = useState<string | null>(null);
   const [continuePlan, setContinuePlan] = useState(false);
+  // Why the last start point change did not go through (shown under the starting point).
+  const [startError, setStartError] = useState('');
   useEffect(() => { if (!routeId) void lastVehicle().then(setVehicle); }, [routeId]);
 
   // Planning needs a plan (or its free trial): the server says so, and the paywall opens instead of an error.
@@ -103,19 +108,26 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
   };
 
   // Existing planned route, another route type picked: plan the same stops again that way (the route is replaced).
-  const replan = async (key: RoutePreference, by: Vehicle = vehicle, from: StartPoint | null = start) => {
-    if (!route) return;
+  /** Plans the route again; resolves to the reason when it could not (also shown), else ''. */
+  const replan = async (key: RoutePreference, by: Vehicle = vehicle, from: StartPoint | null = start): Promise<string> => {
+    if (!route) return 'No route';
     setReordering(true);
     setError('');
     try {
       const origin = await originOf(from);
-      if (!origin) return;
+      if (!origin) return 'Your location is not available.';
       const open = route.stops.filter((stop) => stop.delivery.status === 'pending').map((stop) => stop.delivery.id);
       const built = await postPlan<Route>('/routes/build', { name: route.name, date: route.serviceDate, preference: key, vehicle: by, deliveryIds: open, ...(origin ? { origin } : {}) });
       showRoute(built.data);
       setCurrentId(built.data.id);
+      return '';
     } catch (err) {
-      if (!paywall(err)) setError(err instanceof ApiRequestError ? err.message : 'Could not re-plan the route. Check your connection and try again.');
+      if (paywall(err)) return 'A plan is needed';
+      const message = err instanceof ApiRequestError
+        ? err.code === 'ROUTE_ACTIVE' ? 'Another route is underway today. Finish it first, then this route can be planned again.' : err.message
+        : 'Could not re-plan the route. Check your connection and try again.';
+      setError(message);
+      return message;
     } finally {
       setReordering(false);
     }
@@ -165,7 +177,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
   const type = ROUTE_TYPES.find((t) => t.key === preference) || ROUTE_TYPES[0];
   const routeName = route?.name || name || 'Route';
   const routeDate = route?.serviceDate || date || '';
-  const km = route && route.distanceKm > 0 ? `${route.distanceKm} km` : '— km';
+  const km = route && route.distanceKm > 0 ? formatKm(route.distanceKm) : `— ${bigUnit()}`;
   const time = route && route.durationMin > 0 ? formatMinutes(route.durationMin) : '—';
   const finished = route?.status === 'completed';
   const onOptimise = () => { if (route?.status === 'active') void reorder(); else setTypes(true); };
@@ -186,14 +198,50 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
     if (!start) { setContinuePlan(true); setAskStart('Choose where the route starts before it is planned.'); return; }
     setAskVehicle(true);
   };
-  const pickStart = (point: StartPoint) => {
+  const pickStart = async (point: StartPoint) => {
     setAskStart(null);
-    setStart(point);
-    if (existing) { void replan(preference, vehicle, point); return; }
-    if (continuePlan) { setContinuePlan(false); setAskVehicle(true); }
+    setStartError('');
+    if (!existing) {
+      setStart(point);
+      if (continuePlan) { setContinuePlan(false); setAskVehicle(true); }
+      return;
+    }
+    // A planned route is planned again from the new start; the start only changes once that worked.
+    const failed = await replan(preference, vehicle, point);
+    if (failed) setStartError(failed);
+    else setStart(point);
   };
   // Changing the start of a planned route plans it again from there; a running route keeps its order (Optimise re-orders from the rider).
   const canChangeStart = !existing || route?.status === 'planned';
+
+  // Delete the route (planned or underway). The rider chooses whether its open stops stay (unplanned, same day) or go;
+  // delivered and failed stops always stay in History.
+  const removeRoute = (keepStops: boolean) => {
+    if (!route) return;
+    setDeleting(true);
+    setError('');
+    del<{ stopsKept: number; stopsDeleted: number }>(`/routes/${route.id}?keepStops=${keepStops}`)
+      .then(async () => {
+        await queryClient.invalidateQueries({ queryKey: ['home'] });
+        resetTab('home');
+      })
+      .catch((err) => setError(err instanceof ApiRequestError ? err.message : 'Could not delete the route. Check your connection and try again.'))
+      .finally(() => setDeleting(false));
+  };
+  const confirmDelete = () => {
+    if (!route) return;
+    const open = route.stops.filter((st) => st.delivery.status === 'pending' || st.delivery.status === 'in_progress').length;
+    Alert.alert(
+      route.status === 'active' ? 'Delete this route? It is underway.' : 'Delete this route?',
+      open ? `${open} stop${open === 1 ? ' is' : 's are'} not done yet. Keep ${open === 1 ? 'it' : 'them'} to plan again, or delete ${open === 1 ? 'it' : 'them'} too. Delivered and failed stops stay in History.`
+        : 'Delivered and failed stops stay in History.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        ...(open ? [{ text: 'Delete route and stops', style: 'destructive' as const, onPress: () => removeRoute(false) }] : []),
+        { text: open ? 'Delete route, keep stops' : 'Delete route', style: open ? 'default' as const : 'destructive' as const, onPress: () => removeRoute(true) },
+      ],
+    );
+  };
 
   // Rows only change with these, so the list redraws a row only when it must.
   const rowMode: RowMode = existing ? (finished ? 'open-finished' : 'open') : 'draft';
@@ -231,9 +279,10 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
                 {start ? start.label : existing ? 'Where it was planned from' : 'Choose a starting point'}
               </Text>
             </View>
-            <Text style={s.link}>{start || existing ? 'Change' : 'Choose'}</Text>
+            {reordering ? <ActivityIndicator size="small" color={c.link} /> : <Text style={s.link}>{start || existing ? 'Change' : 'Choose'}</Text>}
           </Pressable>
         ) : null}
+        {startError ? <View style={{ marginTop: 10 }}><LightError text={startError} /></View> : null}
 
         {finished ? <View style={[s.toolbar, { paddingBottom: 0 }]} /> : (
           <View style={s.toolbar}>
@@ -250,6 +299,12 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
         ListFooterComponent={<>
         {existing && !stops.length ? <Text style={{ color: c.textSecondary, fontSize: 15, marginTop: 16 }}>{route ? 'No stops on this route.' : 'Route not found. It may have been planned again as a new route.'}</Text> : null}
         <LightError text={error} />
+        {existing && route && route.status !== 'completed' ? (
+          <Pressable onPress={confirmDelete} disabled={deleting || reordering} style={({ pressed }) => [s.deleteRoute, pressed && { opacity: 0.7 }]} accessibilityRole="button">
+            {deleting ? <ActivityIndicator color={c.danger} /> : <Ionicons name="trash-outline" size={20} color={c.danger} />}
+            <Text style={{ color: c.danger, fontSize: 16, fontWeight: '600' }}>Delete route</Text>
+          </Pressable>
+        ) : null}
         </>}
       />
 
@@ -299,7 +354,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
         </Pressable>
       </Modal>
 
-      <StartPointSheet visible={askStart !== null} reason={askStart || undefined} onPick={pickStart} onClose={() => { setAskStart(null); setContinuePlan(false); }} />
+      <StartPointSheet visible={askStart !== null} reason={askStart || undefined} onPick={(point) => void pickStart(point)} onClose={() => { setAskStart(null); setContinuePlan(false); }} />
 
       {/* Asked before every new route: the roads, the stop order and the directions depend on it. */}
       <Modal visible={askVehicle} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setAskVehicle(false)}>
@@ -400,6 +455,7 @@ const s = themed(() => ({
   type: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, marginBottom: 10, borderRadius: lr.field, borderWidth: 1, borderColor: c.border },
   typeOn: { borderColor: c.link, backgroundColor: c.linkBg },
   vehicles: { flexDirection: 'row', gap: 10, marginBottom: 14 },
+  deleteRoute: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 28, paddingVertical: 14, borderRadius: lr.field, borderWidth: 1, borderColor: c.danger },
   start: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20, padding: 14, borderRadius: lr.field, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
   startMissing: { borderColor: c.warning, backgroundColor: c.warningBg },
   startLabel: { color: c.textSecondary, fontSize: 12, fontWeight: '600', letterSpacing: 1.1 },

@@ -364,10 +364,11 @@ async def _check_second_parcels(tx: Any, actor: dict, items: list[dict], known: 
 
 # ---------- Proof photo ----------
 
-async def upload_proof(actor: dict, stop_id: str, file: UploadedFile | None) -> dict:
-    """Proof for a stop being delivered or already delivered (an offline phone uploads it after the deliver event)."""
+async def upload_proof(actor: dict, stop_id: str, file: UploadedFile | None, kind: str = "photo") -> dict:
+    """Proof (photo or signature) for a stop being delivered or already delivered (an offline phone uploads it after the
+    deliver event)."""
     _require_rider(actor)
-    saved = await deliveries.attach_proof(actor, stop_id, file, allow_delivered=True)
+    saved = await deliveries.attach_proof(actor, stop_id, file, allow_delivered=True, kind=kind)
     return {"stopId": stop_id, "proof": saved["proof"]}
 
 

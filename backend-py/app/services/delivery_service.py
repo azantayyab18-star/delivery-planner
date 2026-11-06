@@ -277,17 +277,20 @@ async def arrive(actor: dict, delivery_id: str, *, at: Any = None, audit: bool =
     return serialize_delivery(saved)
 
 
-async def attach_proof(actor: dict, delivery_id: str, file: UploadedFile | None, *, allow_delivered: bool = False) -> dict:
-    """`allow_delivered` (v2): the photo may also arrive after the stop was marked delivered, e.g. uploaded once back online."""
+async def attach_proof(actor: dict, delivery_id: str, file: UploadedFile | None, *, allow_delivered: bool = False, kind: str = "photo") -> dict:
+    """`allow_delivered` (v2): the proof may also arrive after the stop was marked delivered, e.g. uploaded once back online.
+    `kind`: the proof photo, or the customer's signature (a PNG drawn on the phone)."""
     _require_rider(actor)
     delivery = await find_visible(actor, delivery_id)
     if delivery.status != "in_progress" and not (allow_delivered and delivery.status == "delivered"):
         raise conflict("Mark the delivery as Arrived before adding a photo", "INVALID_STATE")
-    ext = detect_file_type(file.data if file else None, ["jpg", "png"])
+    ext = detect_file_type(file.data if file else None, ["png"] if kind == "signature" else ["jpg", "png"])
     key = await storage.save(file.data, "proofs", ext)
-    previous = delivery.proofPhotoKey
+    previous = delivery.proofSignatureKey if kind == "signature" else delivery.proofPhotoKey
+    data = ({"proofSignatureKey": key} if kind == "signature"
+            else {"proofPhotoKey": key, "proofPhotoUrl": f"/api/v1/files/{key}"}) | {"proofCapturedAt": now()}
     try:
-        saved = await save_delivery(delivery, {"proofPhotoKey": key, "proofPhotoUrl": f"/api/v1/files/{key}", "proofCapturedAt": now()})
+        saved = await save_delivery(delivery, data)
     except Exception:
         await storage.remove(key)
         raise

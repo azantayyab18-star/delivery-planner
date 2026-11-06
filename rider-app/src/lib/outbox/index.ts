@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AppState } from 'react-native';
-import { deleteAsync, documentDirectory, makeDirectoryAsync, moveAsync } from 'expo-file-system/legacy';
+import { deleteAsync, documentDirectory, EncodingType, makeDirectoryAsync, moveAsync, writeAsStringAsync } from 'expo-file-system/legacy';
 import { api, ApiRequestError, isOnline, NetworkError, newId, onOnlineChange, postFile } from '../api';
 import { queryClient } from '../query';
 import { rememberStopEvent } from '../queries';
@@ -34,10 +34,12 @@ async function sendItems(items: OutboxItem[]): Promise<SendOutcome[]> {
       rememberStopEvent(res.data);
       return [{ status: 'sent', result: res.data }];
     }
-    // proof: the photo kept on the phone (P4.3) goes up, then its file is removed.
+    // proof: the photo (or signature) kept on the phone (P4.3) goes up, then its file is removed.
     const path = String(head.payload.path);
-    const res = await postFile<{ stopId: string; proof: Delivery['proof'] }>(`/v2/uploads/proof?stopId=${encodeURIComponent(head.stopId)}`, path, 'photo',
-      'image/jpeg', undefined, { 'Idempotency-Key': head.key });
+    const signature = head.payload.kind === 'signature';
+    const res = await postFile<{ stopId: string; proof: Delivery['proof'] }>(
+      `/v2/uploads/proof?stopId=${encodeURIComponent(head.stopId)}${signature ? '&kind=signature' : ''}`, path, 'photo',
+      signature ? 'image/png' : 'image/jpeg', undefined, { 'Idempotency-Key': head.key });
     await deleteAsync(path, { idempotent: true }).catch(() => {});
     return [{ status: 'sent', result: res.data }];
   } catch (err) {
@@ -230,6 +232,25 @@ export async function submitProof(stopId: string, photoUri: string, label?: stri
   const path = `${PHOTO_DIR}${id}.jpg`;
   await moveAsync({ from: photoUri, to: path });
   const outcome = await active().submit('proof', stopId, { path }, { id, key: newId(), label });
+  if (outcome.status === 'rejected') {
+    await deleteAsync(path, { idempotent: true }).catch(() => {});
+    throw new ApiRequestError(409, { code: outcome.code ?? 'REJECTED', message: outcome.error });
+  }
+  if (outcome.status === 'queued') return { status: 'queued' };
+  return { status: 'sent', proof: (outcome.result as { proof: Delivery['proof'] }).proof };
+}
+
+/**
+ * The customer's signature (optional proof): the PNG drawn on the phone (a data URL), saved, queued and sent like a
+ * photo, so it is not lost offline.
+ */
+export async function submitSignature(stopId: string, dataUrl: string, label?: string):
+  Promise<{ status: 'sent'; proof: Delivery['proof'] } | { status: 'queued' }> {
+  await makeDirectoryAsync(PHOTO_DIR, { intermediates: true }).catch(() => {});
+  const id = newId();
+  const path = `${PHOTO_DIR}${id}.png`;
+  await writeAsStringAsync(path, dataUrl.replace(/^data:image\/\w+;base64,/, ''), { encoding: EncodingType.Base64 });
+  const outcome = await active().submit('proof', stopId, { path, kind: 'signature' }, { id, key: newId(), label });
   if (outcome.status === 'rejected') {
     await deleteAsync(path, { idempotent: true }).catch(() => {});
     throw new ApiRequestError(409, { code: outcome.code ?? 'REJECTED', message: outcome.error });

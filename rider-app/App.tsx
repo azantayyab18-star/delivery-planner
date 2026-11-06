@@ -39,6 +39,7 @@ import Reports from './src/screens/Reports';
 import SubscriptionScreen from './src/screens/Subscription';
 import Paywall from './src/screens/Paywall';
 import Account from './src/screens/Account';
+import Help from './src/screens/Help';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 const TABS: { key: TabName; label: string; icon: IconName }[] = [
@@ -50,11 +51,11 @@ const TABS: { key: TabName; label: string; icon: IconName }[] = [
 
 // Screens already redesigned on the light design_pref theme: the strip above them goes light too, and they draw their
 // own back arrow, so the Back bar is hidden (the Android back button still works).
-const LIGHT_SCREENS = new Set(['Dashboard', 'AddStops', 'NewRoute', 'RoutePreview', 'RouteMapScreen', 'DeliveryDetail', 'RouteComplete', 'LiveNavigation', 'RouteDetail', 'History', 'Reports', 'Account', 'Paywall', 'SubscriptionScreen']);
+const LIGHT_SCREENS = new Set(['Dashboard', 'AddStops', 'NewRoute', 'RoutePreview', 'RouteMapScreen', 'DeliveryDetail', 'RouteComplete', 'LiveNavigation', 'RouteDetail', 'History', 'Reports', 'Account', 'Paywall', 'SubscriptionScreen', 'Help']);
 
 // Every screen can be opened in any tab's stack (navigate() pushes onto the current tab), as with the old navigator.
 const SCREENS = ['Dashboard', 'RouteMapScreen', 'NewRoute', 'RouteDetail', 'AddStops', 'RoutePreview', 'LiveNavigation', 'DeliveryDetail',
-  'RouteComplete', 'History', 'Reports', 'SubscriptionScreen', 'Paywall', 'Account'] as const;
+  'RouteComplete', 'History', 'Reports', 'SubscriptionScreen', 'Paywall', 'Account', 'Help'] as const;
 
 function ScreenRouter() {
   const { current, goBack } = useNav();
@@ -76,6 +77,7 @@ function ScreenRouter() {
     case 'SubscriptionScreen': return <SubscriptionScreen />;
     case 'Paywall': return <Paywall then={current.params?.then as { name: string; params?: Record<string, unknown> } | undefined} />;
     case 'Account': return <Account />;
+    case 'Help': return <Help />;
     default: return <Dashboard />;
   }
 }
@@ -223,11 +225,11 @@ export default function App() {
         {/* Saved server data (Home, routes) survives restarts, so screens draw at once and refresh in the background. */}
         <QueryProvider>
           <AppearanceProvider>
-            {(scheme) => (
+            {(key, scheme) => (
               <>
                 <SystemBars scheme={scheme} />
-                {/* Keyed by the scheme: light/dark draws every screen again in the new colours. */}
-                <Gate key={scheme} />
+                {/* Keyed by the scheme and units: a change draws every screen again in the new colours and units. */}
+                <Gate key={key} />
                 <Splash />
               </>
             )}

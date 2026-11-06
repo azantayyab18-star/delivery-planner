@@ -10,6 +10,7 @@ import type { PickedAddress } from '../../lib/scan/photoLines';
 import AddressScan from './AddressScan';
 import { premium as c, premiumRadius as r, themed } from '../../lib/theme';
 import { PButton } from '../Premium';
+import { getPrefs } from '../../lib/prefs';
 
 // The guide box, in % of the screen: one wide line, where the Eircode goes.
 const BOX = { top: 38, height: 13, side: 6 };
@@ -154,7 +155,7 @@ function ScannerBody({ onEircode, onTypeInstead, onClose, modeSwitch, onAddressM
     done.current = true;
     setTorch(false);
     setLocked(result.eircode);
-    Vibration.vibrate(40);
+    if (getPrefs().scanVibrate) Vibration.vibrate(40);
     setTimeout(() => onEircodeRef.current(result.eircode), LOCKED_MS);
   }, [vote]);
 

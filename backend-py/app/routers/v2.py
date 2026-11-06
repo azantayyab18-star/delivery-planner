@@ -145,6 +145,8 @@ async def create_batch(request: Request):
 
 class ProofQuery(Schema):
     stopId: ObjectId
+    # The proof photo (default) or the customer's signature (PNG).
+    kind: Literal["photo", "signature"] = "photo"
 
 
 @router.post("/uploads/proof")
@@ -153,14 +155,15 @@ async def upload_proof(request: Request):
     being delivered or after it was delivered."""
     actor = await authenticate(request, "rider")
     await limit(request, upload_limiter)
-    stop_id = (await validate(request, query=ProofQuery))["query"].stopId
+    query = (await validate(request, query=ProofQuery))["query"]
+    stop_id = query.stopId
     idempotency.key_from(request)  # refuse before reading a large body
     photo = await receive(request, PHOTO)
 
     async def action():
-        return 200, {"success": True, "data": await v2.upload_proof(actor, stop_id, photo)}
+        return 200, {"success": True, "data": await v2.upload_proof(actor, stop_id, photo, query.kind)}
 
-    return await idempotency.run(request, actor, "POST /v2/uploads/proof", idempotency.request_hash(stop_id, photo.data if photo else b""), action)
+    return await idempotency.run(request, actor, "POST /v2/uploads/proof", idempotency.request_hash(stop_id, query.kind, photo.data if photo else b""), action)
 
 
 # ---------- Address search: Places Autocomplete (New) + Place Details, one billing session per address (P5.1) ----------

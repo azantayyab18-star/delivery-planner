@@ -20,6 +20,8 @@ import { useNav } from '../lib/nav';
 import { useRouteData } from '../lib/queries';
 import SyncStatus from '../components/SyncStatus';
 import { TEST_LOCATION } from '../lib/location';
+import { formatKm, formatMeters } from '../lib/units';
+import { usePrefs } from '../lib/prefs';
 
 type Coordinates = { latitude: number; longitude: number };
 type Stop = Route['stops'][number];
@@ -57,7 +59,7 @@ const STEP_STATUS: Record<StepKind, { label: string; tone: LightTone }> = {
 };
 
 const formatLeg = ({ km, min, road }: Leg) => {
-  const distance = km < 1 ? `${Math.round(km * 1000)} m` : `${km.toFixed(1)} km`;
+  const distance = formatMeters(km * 1000);
   // Straight-line estimates are marked with ~ until the road distance is known.
   return road ? `${distance} · ${Math.max(1, Math.round(min))} min` : `~${distance}`;
 };
@@ -123,12 +125,14 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
   const { route, setRoute } = routeQuery;
   // Directions from this map's stop rows cycle or drive as this route's vehicle.
   useEffect(() => { rememberVehicle(route?.vehicle); }, [route?.vehicle]);
-  // A stop's Navigate: in-app turn-by-turn (our own routing) once the route is underway; before that, the phone's maps app.
+  // A stop's Directions: in-app turn-by-turn (our own routing) once the route is underway, unless the rider chose Google
+  // Maps (Account → Navigation app); before the start, always the maps app.
   const routeActive = route?.status === 'active';
+  const { navApp } = usePrefs();
   const navigateTo = useCallback((stop: Stop) => {
-    if (routeActive) navigate('LiveNavigation', { stopId: stop.delivery.id });
+    if (routeActive && navApp === 'inapp') navigate('LiveNavigation', { stopId: stop.delivery.id });
     else directionsTo(stop.delivery);
-  }, [routeActive, navigate]);
+  }, [routeActive, navApp, navigate]);
   const loading = routeQuery.isPending;
   const refreshing = routeQuery.isFetching && !routeQuery.isPending;
   const [actionError, setError] = useState('');
@@ -222,8 +226,8 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
     ?? (p.stop.legDistanceKm > 0 ? { km: p.stop.legDistanceKm, min: p.stop.legDurationMin, road: route?.optimization === 'road' } : { km: kmBetween(i === 0 ? start ?? p.at : ordered[i - 1].at, p.at), min: 0, road: false }));
 
   const mapStops = useMemo<MapStop[]>(() => [
-    ...ordered.map((p, i) => ({ ...p.at, id: p.stop.delivery.id, label: String(i + 1), title: `${i + 1}. ${stopName(p.stop)}`, kind: (i === 0 ? 'next' : i === ordered.length - 1 ? 'last' : 'upcoming') as MapStop['kind'] })),
-    ...finished.flatMap((stop) => { const at = coordsOf(stop); return at ? [{ ...at, id: stop.delivery.id, label: '', title: stopName(stop), kind: (stop.delivery.status === 'delivered' ? 'done' : 'failed') as MapStop['kind'] }] : []; }),
+    ...ordered.map((p, i) => ({ ...p.at, id: p.stop.delivery.id, label: String(p.stop.order), title: `${p.stop.order}. ${stopName(p.stop)}`, kind: (i === 0 ? 'next' : i === ordered.length - 1 ? 'last' : 'upcoming') as MapStop['kind'] })),
+    ...finished.flatMap((stop) => { const at = coordsOf(stop); return at ? [{ ...at, id: stop.delivery.id, label: String(stop.order), title: `${stop.order}. ${stopName(stop)}`, kind: (stop.delivery.status === 'delivered' ? 'done' : 'failed') as MapStop['kind'] }] : []; }),
   ], [ordered, finished]);
   const orderLine = useMemo(() => ordered.map((p) => p.at), [ordered]);
 
@@ -285,15 +289,15 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
   const legText = legs.map(formatLeg);
   const legKey = legText.join('|');
   const rows = useMemo<Row[]>(() => {
-    const unmappedRows: Row[] = unmapped.map((stop, i) => ({
-      type: 'stop', key: stop.delivery.id, stop, kind: 'upcoming', order: ordered.length + i + 1,
+    const unmappedRows: Row[] = unmapped.map((stop) => ({
+      type: 'stop', key: stop.delivery.id, stop, kind: 'upcoming', order: stop.order,
       warning: stop.delivery.address.geocodeStatus === 'pending' ? 'Not looked up yet' : 'Location not found', pin: CAN_PIN, open: true, directions: true,
     }));
     const left = ordered.length + unmapped.length;
     return [
       { type: 'start', key: 'start' },
       ...ordered.map((p, i): Row => ({
-        type: 'stop', key: p.stop.delivery.id, stop: p.stop, kind: i === 0 ? 'current' : 'upcoming', order: i + 1, last: i === ordered.length - 1 && !unmapped.length,
+        type: 'stop', key: p.stop.delivery.id, stop: p.stop, kind: i === 0 ? 'current' : 'upcoming', order: p.stop.order, last: i === ordered.length - 1 && !unmapped.length,
         leg: legText[i], warning: !p.stop.delivery.address.geocoded ? 'Approximate location' : null,
         selected: i === 0, pin: CAN_PIN && !p.stop.delivery.address.geocoded, open: true, directions: true,
       })),
@@ -301,7 +305,7 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
       { type: 'finish', key: 'finish', left },
       ...(finished.length ? [{ type: 'section', key: 'completed' } as Row] : []),
       ...finished.map((stop, i): Row => ({
-        type: 'stop', key: stop.delivery.id, stop, kind: stop.delivery.status === 'delivered' ? 'done' : 'failed', isFirst: i === 0, isLast: i === finished.length - 1, open: true,
+        type: 'stop', key: stop.delivery.id, stop, kind: stop.delivery.status === 'delivered' ? 'done' : 'failed', order: stop.order, isFirst: i === 0, isLast: i === finished.length - 1, open: true,
       })),
     ];
     // legText is rebuilt every render; legKey says when its labels actually changed.
@@ -334,10 +338,10 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
   const timeLeft = roadNow ? formatMinutes(roadNow.min) : legs.some((l) => l.road) ? formatMinutes(legs.reduce((a, l) => a + l.min, 0)) : route.durationMin > 0 && planned ? formatMinutes(route.durationMin) : '—';
   // Before the start: the whole route, like the design. Underway: what is left. Finished: what was done.
   const stats = route.status === 'completed'
-    ? [{ value: `${route.progress.done}/${route.progress.total}`, label: 'stops done' }, { value: `${route.distanceKm} km`, label: 'distance' }, { value: '—', label: 'remaining' }]
+    ? [{ value: `${route.progress.done}/${route.progress.total}`, label: 'stops done' }, { value: formatKm(route.distanceKm), label: 'distance' }, { value: '—', label: 'remaining' }]
     : [
       { value: String(planned ? route.progress.total : total), label: planned ? 'stops' : 'stops left' },
-      { value: `${roadNow || (planned && route.optimization === 'road') ? '' : '~'}${leftKm < 10 ? leftKm.toFixed(1) : Math.round(leftKm)} km`, label: planned ? 'distance' : 'left to drive' },
+      { value: `${roadNow || (planned && route.optimization === 'road') ? '' : '~'}${formatKm(leftKm)}`, label: planned ? 'distance' : 'left to drive' },
       { value: timeLeft, label: planned ? 'est. time' : 'remaining' },
     ];
 

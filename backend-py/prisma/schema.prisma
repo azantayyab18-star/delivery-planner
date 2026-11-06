@@ -187,6 +187,8 @@ model Delivery {
   proofPhotoKey   String?
   proofPhotoUrl   String?
   proofCapturedAt DateTime?
+  /// The customer's signature (PNG), optional, next to the proof photo.
+  proofSignatureKey String?
   note            String?        @db.VarChar(1000)
   failureReason   FailureReason?
   failureNote     String?        @db.VarChar(1000)

@@ -11,6 +11,7 @@ import type { Route } from '../lib/types';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
 import { light as c, themed, statusBarStyle } from '../lib/theme';
+import { bigUnit, inBigUnit } from '../lib/units';
 
 /** A finished route from History (design_pref "Route detail"): its map, totals and every stop with the time it was done. */
 export default function RouteDetail({ id }: { id: string }) {
@@ -65,7 +66,7 @@ export default function RouteDetail({ id }: { id: string }) {
             <View style={s.stats}>
               <Stat value={String(route.summary.delivered)} label="Delivered" color={c.success} />
               <Stat value={String(route.summary.failed)} label="Failed" color={route.summary.failed ? c.danger : c.text} />
-              <Stat value={route.distanceKm > 0 ? String(Math.round(route.distanceKm)) : '—'} unit={route.distanceKm > 0 ? 'km' : undefined} label="Distance" />
+              <Stat value={route.distanceKm > 0 ? String(Math.round(inBigUnit(route.distanceKm))) : '—'} unit={route.distanceKm > 0 ? bigUnit() : undefined} label="Distance" />
               <View style={{ flex: 1 }}>
                 <Text style={s.statValue} numberOfLines={1} adjustsFontSizeToFit>
                   {minutes == null ? '—' : <>{minutes >= 60 ? <>{Math.floor(minutes / 60)}<Text style={s.unit}>h </Text></> : null}{minutes % 60}<Text style={s.unit}>m</Text></>}

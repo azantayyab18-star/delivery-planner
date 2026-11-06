@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { ApiRequestError } from '../lib/api';
 import { newPlaceSession, pickPlace, searchPlaces, type PlaceSuggestion } from '../lib/places';
@@ -61,8 +61,11 @@ export default function StartPointSheet({ visible, reason, onPick, onClose }: {
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={close}>
+      {/* The sheet rises above the keyboard while an address is typed. */}
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <Pressable style={s.backdrop} onPress={close}>
         <Pressable style={s.sheet} onPress={() => {}}>
+          <ScrollView keyboardShouldPersistTaps="handled" bounces={false}>
           <View style={s.grabber} />
           <Text style={s.title}>Starting point</Text>
           <Text style={[s.sub, reason ? { color: c.warning } : null]}>{reason || 'Where does this route start? The stops are ordered from here.'}</Text>
@@ -89,8 +92,10 @@ export default function StartPointSheet({ visible, reason, onPick, onClose }: {
               {picking === r.label ? <ActivityIndicator size="small" color={c.link} /> : null}
             </Pressable>
           ))}
+          </ScrollView>
         </Pressable>
       </Pressable>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

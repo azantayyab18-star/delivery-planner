@@ -82,13 +82,14 @@ async def clear_history(actor: dict) -> dict:
         db.report.find_many(where={"riderId": actor["id"]}),
         db.delivery.find_many(where=finished),
     )
-    photos = [d for d in done if d.proofPhotoKey]
+    # Proof files: doorstep photos and customer signatures.
+    files = [k for d in done for k in (d.proofPhotoKey, d.proofSignatureKey) if k]
     # The finished stops are kept in deleted_deliveries (P4.6); their photo files go, as before.
     async with transaction() as tx:
         await archive_deleted(tx, done, "clear_history")
         deliveries = await tx.delivery.delete_many(where={"id": {"in": [d.id for d in done]}}) if done else 0
         routes = await tx.route.delete_many(where={"riderId": actor["id"], "status": "completed"})
     await db.report.delete_many(where={"riderId": actor["id"]})
-    # Customer doorstep photos go with the deliveries they prove.
-    await asyncio.gather(*(storage.remove(r.fileKey) for r in reports), *(storage.remove(d.proofPhotoKey) for d in photos))
+    # Customer photos and signatures go with the deliveries they prove.
+    await asyncio.gather(*(storage.remove(r.fileKey) for r in reports), *(storage.remove(k) for k in files))
     return {"deliveriesDeleted": deliveries, "routesDeleted": routes, "reportsDeleted": len(reports)}

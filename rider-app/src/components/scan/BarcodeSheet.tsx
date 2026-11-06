@@ -4,6 +4,7 @@ import { CameraView, useCameraPermissions, type BarcodeType } from 'expo-camera'
 import { Ionicons } from '@expo/vector-icons';
 import { premium as c, themed } from '../../lib/theme';
 import { PButton } from '../Premium';
+import { getPrefs } from '../../lib/prefs';
 
 // Every symbology the camera supports: labels vary a lot between couriers.
 const BARCODE_TYPES: BarcodeType[] = ['qr', 'code128', 'code39', 'code93', 'ean13', 'ean8', 'upc_a', 'upc_e', 'itf14', 'codabar', 'datamatrix', 'pdf417', 'aztec'];
@@ -35,7 +36,7 @@ function BarcodeBody({ onClose, onResult }: { onClose: () => void; onResult: (pa
     if (candidate.current.value !== raw) { candidate.current = { value: raw, hits: 1 }; return; }
     candidate.current.hits += 1;
     if (candidate.current.hits !== REQUIRED_HITS) return;
-    Vibration.vibrate(30);
+    if (getPrefs().scanVibrate) Vibration.vibrate(30);
     onResult(raw.replace(/\s+/g, '').toUpperCase().slice(0, 80));
   };
 

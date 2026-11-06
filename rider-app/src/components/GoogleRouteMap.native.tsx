@@ -184,7 +184,7 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
         ) : null}
 
         {shown.map((st) => (
-          <StopMarker key={st.id} latitude={st.latitude} longitude={st.longitude} title={st.title} kind={st.kind} label={st.label} light={!!light} />
+          <StopMarker key={`${st.id}:${st.kind}:${st.label}`} latitude={st.latitude} longitude={st.longitude} title={st.title} kind={st.kind} label={st.label} light={!!light} />
         ))}
 
         {position ? <PositionMarker latitude={position.latitude} longitude={position.longitude} /> : null}

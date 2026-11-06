@@ -63,10 +63,13 @@ export default function NewRoute({ initialDate }: { initialDate?: string }) {
   return (
     <Screen style={{ backgroundColor: c.background }}>
       <StatusBar style={statusBarStyle()} />
-      <KeyboardAwareScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
-        <Pressable onPress={goBack} hitSlop={12} accessibilityLabel="Back" style={{ alignSelf: 'flex-start' }}>
+      {/* Fixed above the page, so Back is always there (iPhones have no back button of their own). */}
+      <View style={s.topBar}>
+        <Pressable onPress={goBack} hitSlop={12} accessibilityRole="button" accessibilityLabel="Back" style={s.back}>
           <Ionicons name="arrow-back" size={26} color={c.text} />
         </Pressable>
+      </View>
+      <KeyboardAwareScrollView contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 4, paddingBottom: 120 }} keyboardShouldPersistTaps="handled">
         <Text style={s.title}>New route</Text>
         <Text style={s.subtitle}>Pick the day and give it a name. Planning tomorrow&apos;s route tonight saves time in the morning.</Text>
         <LightError text={error} />
@@ -140,7 +143,9 @@ function NameField({ value, onChangeText, placeholder, onSubmit }: { value: stri
 }
 
 const s = themed(() => ({
-  title: { color: c.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.5, marginTop: 28 },
+  topBar: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4, backgroundColor: c.background },
+  back: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+  title: { color: c.text, fontSize: 30, fontWeight: '800', letterSpacing: -0.5, marginTop: 8 },
   subtitle: { color: c.textSecondary, fontSize: 16, lineHeight: 23, marginTop: 10, marginBottom: 24 },
   label: { color: c.textSecondary, fontSize: 13, fontWeight: '600', letterSpacing: 1.2, marginBottom: 12 },
   tiles: { flexDirection: 'row', gap: 12 },

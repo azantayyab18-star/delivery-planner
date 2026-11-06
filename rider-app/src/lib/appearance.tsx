@@ -2,33 +2,43 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { useColorScheme } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { applyScheme, type Scheme } from './theme';
+import { applyUnits, type Units } from './units';
 
-// Light, dark, or the phone's own setting (the default). Kept on this phone only.
+// How the app looks: light, dark or as the phone (the default), and distances in km or miles. Kept on this phone.
 export type Appearance = 'system' | Scheme;
 const KEY = 'dp_appearance_v1';
+const UNITS_KEY = 'dp_units_v1';
 
-type AppearanceValue = { appearance: Appearance; scheme: Scheme; setAppearance: (next: Appearance) => void };
-const AppearanceContext = createContext<AppearanceValue>({ appearance: 'system', scheme: 'light', setAppearance: () => {} });
+type AppearanceValue = {
+  appearance: Appearance; scheme: Scheme; setAppearance: (next: Appearance) => void;
+  units: Units; setUnits: (next: Units) => void;
+};
+const AppearanceContext = createContext<AppearanceValue>({ appearance: 'system', scheme: 'light', setAppearance: () => {}, units: 'km', setUnits: () => {} });
 
 export const useAppearance = () => useContext(AppearanceContext);
 
 /**
- * Picks the colour scheme and switches the palette before its children draw. The children are keyed by the scheme, so
- * a change (the rider's choice, or the phone switching to dark at night) draws every screen again in the new colours.
+ * Picks the colour scheme and units and applies them before its children draw. The children get a key from both, so a
+ * change (the rider's choice, or the phone switching to dark at night) draws every screen again.
  */
-export function AppearanceProvider({ children }: { children: (scheme: Scheme) => ReactNode }) {
+export function AppearanceProvider({ children }: { children: (key: string, scheme: Scheme) => ReactNode }) {
   const system = useColorScheme();
   const [appearance, setChoice] = useState<Appearance | null>(null);
+  const [units, setUnitsState] = useState<Units>('km');
 
   useEffect(() => {
-    AsyncStorage.getItem(KEY)
-      .then((v) => setChoice(v === 'light' || v === 'dark' ? v : 'system'))
+    Promise.all([AsyncStorage.getItem(KEY), AsyncStorage.getItem(UNITS_KEY)])
+      .then(([look, u]) => {
+        if (u === 'km' || u === 'mi') setUnitsState(u);
+        setChoice(look === 'light' || look === 'dark' ? look : 'system');
+      })
       .catch(() => setChoice('system'));
   }, []);
 
   const scheme: Scheme = appearance === 'light' || appearance === 'dark' ? appearance : system === 'dark' ? 'dark' : 'light';
-  // Before anything below reads a colour.
+  // Before anything below reads a colour or formats a distance.
   applyScheme(scheme);
+  applyUnits(units);
 
   const value = useMemo<AppearanceValue>(() => ({
     appearance: appearance ?? 'system',
@@ -37,9 +47,14 @@ export function AppearanceProvider({ children }: { children: (scheme: Scheme) =>
       setChoice(next);
       void AsyncStorage.setItem(KEY, next).catch(() => {});
     },
-  }), [appearance, scheme]);
+    units,
+    setUnits: (next) => {
+      setUnitsState(next);
+      void AsyncStorage.setItem(UNITS_KEY, next).catch(() => {});
+    },
+  }), [appearance, scheme, units]);
 
   // The saved choice is read first, so the app never flashes the wrong colours (the splash covers this moment).
   if (appearance === null) return null;
-  return <AppearanceContext.Provider value={value}>{children(scheme)}</AppearanceContext.Provider>;
+  return <AppearanceContext.Provider value={value}>{children(`${scheme}-${units}`, scheme)}</AppearanceContext.Provider>;
 }

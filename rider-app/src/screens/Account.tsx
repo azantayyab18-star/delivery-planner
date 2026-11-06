@@ -14,6 +14,7 @@ import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/th
 import { useNav } from '../lib/nav';
 import { useServiceArea } from '../lib/serviceArea';
 import { useAppearance, type Appearance } from '../lib/appearance';
+import { setPref, usePrefs } from '../lib/prefs';
 
 type IonName = ComponentProps<typeof Ionicons>['name'];
 
@@ -37,8 +38,10 @@ export default function Account() {
   const [cityInput, setCityInput] = useState('');
   const [detecting, setDetecting] = useState(false);
   const { checkNow } = useServiceArea();
-  const [open, setOpen] = useState<'area' | 'password' | 'appearance' | null>(null);
-  const { appearance, setAppearance } = useAppearance();
+  const [open, setOpen] = useState<'name' | 'area' | 'password' | 'appearance' | 'units' | 'navApp' | null>(null);
+  const { appearance, setAppearance, units, setUnits } = useAppearance();
+  const { navApp, scanVibrate } = usePrefs();
+  const [nameInput, setNameInput] = useState('');
   const [config, setConfig] = useState<PublicConfig | null>(null);
   useEffect(() => { get<PublicConfig>('/config').then((res) => setConfig(res.data)).catch(() => {}); }, []);
 
@@ -57,6 +60,13 @@ export default function Account() {
     if (!city) return;
     await updateField({ city });
     setCityInput('');
+  };
+
+  const saveName = async () => {
+    const fullName = nameInput.trim();
+    if (fullName.length < 2) { setError('Enter your name (at least 2 letters)'); return; }
+    await updateField({ fullName });
+    setOpen(null);
   };
 
   const detectCity = async () => {
@@ -96,15 +106,39 @@ export default function Account() {
             {/* Not in the design: the sign-in email (and phone), as before. */}
             <Text style={s.email} numberOfLines={1}>{user.email}{user.phone ? ` · ${user.phone}` : ''}</Text>
           </View>
-          {/* MISSING: see missing.md — no profile editing screen yet. */}
-          <Text style={[s.link, { opacity: 0.4 }]}>Edit</Text>
+          {/* The name can be changed; the email is the sign-in and stays. */}
+          <Pressable onPress={() => { setNameInput(user.fullName); setOpen(open === 'name' ? null : 'name'); }} hitSlop={8} accessibilityRole="button">
+            <Text style={s.link}>{open === 'name' ? 'Close' : 'Edit'}</Text>
+          </Pressable>
         </View>
+        {open === 'name' ? (
+          <View style={[s.panel, { marginTop: 16 }]}>
+            <Text style={s.hint}>Name</Text>
+            <Field placeholder="Your name" value={nameInput} onChangeText={setNameInput} onSubmit={() => void saveName()} />
+            <Text style={[s.hint, { marginTop: 14 }]}>Email (used to sign in, can&apos;t be changed)</Text>
+            <View style={[s.field, { justifyContent: 'center', opacity: 0.6 }]}><Text style={{ color: c.text, fontSize: 16 }}>{user.email}</Text></View>
+            <LightButton title="Save name" onPress={() => void saveName()} loading={saving} disabled={!nameInput.trim() || nameInput.trim() === user.fullName} style={{ marginTop: 12 }} />
+          </View>
+        ) : null}
 
         <Text style={s.section}>Settings</Text>
-        {/* MISSING: see missing.md — only Google Maps is supported, and there are no unit or sound settings. */}
-        <Row icon="navigate-outline" label="Navigation app" value="Google Maps" disabled first />
-        <Row icon="resize-outline" label="Units" value="km" disabled />
-        <Row icon="volume-medium-outline" label="Scan sound & vibration" disabled right={<Switch value disabled trackColor={{ true: c.link, false: c.track }} thumbColor={c.surface} />} />
+        <Row icon="navigate-outline" label="Navigation app" value={navApp === 'inapp' ? 'Routify' : 'Google Maps'} first
+          onPress={() => setOpen(open === 'navApp' ? null : 'navApp')} expanded={open === 'navApp'} />
+        {open === 'navApp' ? (
+          <View style={s.panel}>
+            <Segments value={navApp} onChange={(v) => setPref('navApp', v)} options={[{ key: 'inapp', label: 'Routify', icon: 'navigate' }, { key: 'google', label: 'Google Maps', icon: 'map-outline' }]} />
+            <Text style={[s.hint, { marginTop: 10 }]}>Which app a stop&apos;s Directions open once your route is underway. Routify gives spoken turn-by-turn directions on our own maps.</Text>
+          </View>
+        ) : null}
+        <Row icon="resize-outline" label="Units" value={units === 'mi' ? 'Miles' : 'Kilometres'} onPress={() => setOpen(open === 'units' ? null : 'units')} expanded={open === 'units'} />
+        {open === 'units' ? (
+          <View style={s.panel}>
+            <Segments value={units} onChange={setUnits} options={[{ key: 'km', label: 'Kilometres', icon: 'speedometer-outline' }, { key: 'mi', label: 'Miles', icon: 'speedometer-outline' }]} />
+            <Text style={[s.hint, { marginTop: 10 }]}>Distances on screen and in spoken directions (metres or yards up close).</Text>
+          </View>
+        ) : null}
+        <Row icon="phone-portrait-outline" label="Vibrate on scan" onPress={() => setPref('scanVibrate', !scanVibrate)}
+          right={<Switch value={scanVibrate} onValueChange={(v) => setPref('scanVibrate', v)} trackColor={{ true: c.link, false: c.track }} thumbColor={c.surface} />} />
         {/* Light, dark, or as the phone (the default). */}
         <Row icon={appearance === 'dark' ? 'moon-outline' : 'sunny-outline'} label="Appearance" value={APPEARANCES.find((a) => a.key === appearance)?.label}
           onPress={() => setOpen(open === 'appearance' ? null : 'appearance')} expanded={open === 'appearance'} />
@@ -147,8 +181,7 @@ export default function Account() {
         ) : null}
 
         <Text style={s.section}>Support</Text>
-        {/* MISSING: see missing.md — no help pages yet. */}
-        <Row icon="help-circle-outline" label="Help" disabled first />
+        <Row icon="help-circle-outline" label="Help" onPress={() => navigate('Help')} first />
         {/* Riders are independent (no manager); this emails the platform's support address. */}
         <Row icon="chatbubble-outline" label="Contact support" onPress={() => { if (config?.supportEmail) void Linking.openURL(`mailto:${config.supportEmail}`); }} disabled={!config?.supportEmail} />
 
@@ -162,6 +195,24 @@ export default function Account() {
         </Pressable>
       </KeyboardAwareScrollView>
     </Screen>
+  );
+}
+
+/** A row of choices, one selected (Appearance, Units, Navigation app). */
+function Segments<T extends string>({ value, onChange, options }: { value: T; onChange: (v: T) => void; options: { key: T; label: string; icon: IonName }[] }) {
+  return (
+    <View style={s.segments}>
+      {options.map((o) => {
+        const on = value === o.key;
+        return (
+          <Pressable key={o.key} onPress={() => onChange(o.key)} style={({ pressed }) => [s.segment, on && s.segmentOn, pressed && { opacity: 0.85 }]}
+            accessibilityRole="radio" accessibilityState={{ selected: on }}>
+            <Ionicons name={o.icon} size={18} color={on ? c.onInk : c.text} />
+            <Text style={{ color: on ? c.onInk : c.text, fontSize: 15, fontWeight: '600' }} numberOfLines={1}>{o.label}</Text>
+          </Pressable>
+        );
+      })}
+    </View>
   );
 }
 

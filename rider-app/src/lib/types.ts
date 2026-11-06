@@ -26,7 +26,8 @@ export type Delivery = {
     postalCode: string | null;
   };
   status: 'pending' | 'in_progress' | 'delivered' | 'failed';
-  proof: { photoUrl: string; capturedAt: string } | null;
+  /** Photo and/or the customer's signature (either may be missing). */
+  proof: { photoUrl: string | null; capturedAt: string; signatureUrl?: string | null } | null;
   note: string | null;
   failure: { reason: FailureReason; note: string | null } | null;
   serviceDate: string; routeId: string | null; stopOrder: number | null;

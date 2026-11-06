@@ -10,6 +10,7 @@ import { Screen } from '../components/Kit';
 import { LightError } from '../components/LightKit';
 import { useNav } from '../lib/nav';
 import { light as c, themed, statusBarStyle } from '../lib/theme';
+import { formatKm } from '../lib/units';
 
 type Filter = 'all' | 'completed' | 'failures';
 const FILTERS: { key: Filter; label: string }[] = [
@@ -106,7 +107,7 @@ export default function History() {
             <Pressable onPress={() => navigate('RouteDetail', { id: item.id })} style={({ pressed }) => [s.row, index > 0 && s.divider, pressed && { opacity: 0.7 }]}>
               <View style={{ flex: 1, marginRight: 12 }}>
                 <Text style={s.name} numberOfLines={1}>{item.name || 'Route'}</Text>
-                <Text style={s.meta}>{stops} stop{stops === 1 ? '' : 's'}{item.distanceKm > 0 ? ` · ${Math.round(item.distanceKm)} km` : ''}</Text>
+                <Text style={s.meta}>{stops} stop{stops === 1 ? '' : 's'}{item.distanceKm > 0 ? ` · ${formatKm(item.distanceKm, { whole: true })}` : ''}</Text>
                 <View style={s.counts}>
                   <Dot color={c.success} text={`${item.summary.delivered} delivered`} />
                   {item.summary.failed ? <Dot color={c.danger} text={`${item.summary.failed} failed`} /> : null}

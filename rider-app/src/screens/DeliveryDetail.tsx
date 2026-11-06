@@ -9,7 +9,8 @@ import { get, del, fileUrl, isOnline, ApiRequestError } from '../lib/api';
 import { queryClient } from '../lib/query';
 import type { Delivery, FailureReason, Route } from '../lib/types';
 import { applyStopEvent, earlierOpenStop, earlierStopOf, type V2EventResult } from '../lib/v2';
-import { submitProof, submitStopEvent } from '../lib/outbox';
+import { submitProof, submitSignature, submitStopEvent } from '../lib/outbox';
+import SignaturePad from '../components/SignaturePad';
 import { prepareProofPhoto } from '../lib/photo';
 import { FAILURE_LABELS, stopCardText, timeOnly } from '../lib/format';
 import { Screen } from '../components/Kit';
@@ -49,7 +50,10 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
   const closeStep = (hide: () => void) => { if (initialStep) goBack(); else hide(); };
   const [delivery, setDelivery] = useState<Delivery | null>(null);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState<'deliver' | 'fail' | 'photo' | 'delete' | null>(null);
+  const [busy, setBusy] = useState<'deliver' | 'fail' | 'photo' | 'signature' | 'delete' | null>(null);
+  const [signing, setSigning] = useState(false);
+  // The signature just drawn (shown at once, also while it waits on the phone to be sent).
+  const [drawnSignature, setDrawnSignature] = useState<string | null>(null);
   const [showFail, setShowFail] = useState(initialStep === 'fail');
   const [reason, setReason] = useState<FailureReason | null>(null);
   const [failNote, setFailNote] = useState('');
@@ -100,6 +104,18 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
       const sent = await submitProof(id, photo.uri, label('Photo'));
       if (sent.status === 'sent') setDelivery((d) => (d ? { ...d, proof: sent.proof } : d));
       else setError('Photo saved on the phone. It uploads when you are back online.');
+    });
+  };
+
+  // Optional: the customer signs on the phone; kept on the phone until uploaded, like the photo.
+  const saveSignature = async (png: string) => {
+    setSigning(false);
+    setDrawnSignature(png);
+    await run('signature', async () => {
+      await ensureArrived();
+      const sent = await submitSignature(id, png, label('Signature'));
+      if (sent.status === 'sent') setDelivery((d) => (d ? { ...d, proof: sent.proof } : d));
+      else setError('Signature saved on the phone. It uploads when you are back online.');
     });
   };
 
@@ -174,6 +190,7 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
 
   const open = delivery.status === 'pending' || delivery.status === 'in_progress';
   const proof = delivery.proof?.photoUrl ? fileUrl(delivery.proof.photoUrl) : null;
+  const signature = drawnSignature ?? (delivery.proof?.signatureUrl ? fileUrl(delivery.proof.signatureUrl) : null);
 
   // Proof of delivery (design_pref "Proof of delivery" / "· Filled"): photo, note, then Complete delivery.
   if (showProof) {
@@ -217,15 +234,28 @@ export default function DeliveryDetail({ id, onDone, initialStep }: { id: string
             <Text style={{ color: c.link, fontSize: 15, fontWeight: '500' }}>Choose from gallery</Text>
           </Pressable>
 
-          {/* MISSING: see missing.md — signatures can't be captured or saved yet; shown disabled at the owner's request. */}
-          <View style={[s.sigHead, { opacity: 0.45 }]}>
-            <Text style={[s.label, { marginTop: 0, marginBottom: 0 }]}>Signature</Text>
-            <Text style={{ color: c.placeholder, fontSize: 15, fontWeight: '500' }}>Clear</Text>
+          {/* Optional: the customer signs on the phone. */}
+          <View style={s.sigHead}>
+            <Text style={[s.label, { marginTop: 0, marginBottom: 0 }]}>Signature <Text style={{ color: c.placeholder, fontWeight: '400' }}>(optional)</Text></Text>
+            {signature ? (
+              <Pressable onPress={() => setSigning(true)} disabled={!!busy} hitSlop={8}>
+                <Text style={{ color: c.link, fontSize: 15, fontWeight: '600' }}>Sign again</Text>
+              </Pressable>
+            ) : null}
           </View>
-          <View style={s.signature} accessibilityState={{ disabled: true }}>
-            <Text style={{ color: c.placeholder, fontSize: 16 }}>Signature isn&apos;t available yet</Text>
-            <View style={s.sigLine} />
-          </View>
+          <Pressable onPress={() => setSigning(true)} disabled={!!busy} style={({ pressed }) => [s.signature, signature ? s.signed : null, pressed && { opacity: 0.85 }]}
+            accessibilityRole="button" accessibilityLabel={signature ? 'Signature added. Sign again' : 'Add the customer signature'}>
+            {busy === 'signature' ? <ActivityIndicator color={c.text} /> : signature ? (
+              <Image source={{ uri: signature }} style={{ position: 'absolute', top: 10, left: 16, right: 16, bottom: 10 }} resizeMode="contain" />
+            ) : (
+              <>
+                <MaterialCommunityIcons name="draw" size={26} color={c.textSecondary} />
+                <Text style={{ color: c.textSecondary, fontSize: 16, marginTop: 6 }}>Tap for the customer to sign</Text>
+              </>
+            )}
+            {!signature ? <View style={s.sigLine} /> : null}
+          </Pressable>
+          <SignaturePad visible={signing} onClose={() => setSigning(false)} onDone={(png) => void saveSignature(png)} />
 
           <Text style={s.label}>Note <Text style={{ color: c.placeholder, fontWeight: '400' }}>(optional)</Text></Text>
           <NoteField value={deliverNote} onChangeText={setDeliverNote} placeholder="e.g. Left in the porch" short />
@@ -451,5 +481,7 @@ const s = themed(() => ({
   sigHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 28, marginBottom: 10 },
   signature: { height: 140, borderRadius: lr.field, borderWidth: 1, borderColor: c.border, backgroundColor: c.soft, alignItems: 'center', justifyContent: 'center' },
   sigLine: { position: 'absolute', left: 20, right: 20, bottom: 28, height: 1, backgroundColor: c.border },
+  // A signature is dark ink on white, in dark mode too.
+  signed: { backgroundColor: '#ffffff', borderColor: c.border },
   note: { minHeight: 96, borderRadius: lr.field, borderWidth: 1, borderColor: c.border, paddingHorizontal: 16, paddingVertical: 14, color: c.text, fontSize: 16 },
 }));

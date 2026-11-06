@@ -13,6 +13,7 @@ import type { Delivery, Route, RouteStop } from '../lib/types';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
 import { light as c, themed, statusBarStyle } from '../lib/theme';
+import { bigUnit, inBigUnit } from '../lib/units';
 
 /** Shown once the last stop of a route is delivered or failed (design_pref "Route complete"). */
 export default function RouteComplete({ routeId }: { routeId: string }) {
@@ -52,7 +53,7 @@ export default function RouteComplete({ routeId }: { routeId: string }) {
             <View style={s.stats}>
               <Stat value={String(route.summary.delivered)} label="Delivered" color={c.success} />
               <Stat value={String(route.summary.failed)} label="Failed" color={route.summary.failed ? c.danger : c.text} />
-              <Stat value={route.distanceKm > 0 ? String(Math.round(route.distanceKm)) : '—'} unit={route.distanceKm > 0 ? 'km' : undefined} label="Distance" />
+              <Stat value={route.distanceKm > 0 ? String(Math.round(inBigUnit(route.distanceKm))) : '—'} unit={route.distanceKm > 0 ? bigUnit() : undefined} label="Distance" />
               {minutes != null ? (
                 <View style={{ flex: 1, alignItems: 'center' }}>
                   <Text style={s.statValue} numberOfLines={1} adjustsFontSizeToFit>

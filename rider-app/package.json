@@ -47,6 +47,7 @@
     "react-native-purchases-ui": "^10.13.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
+    "react-native-signature-canvas": "5.1.1",
     "react-native-vision-camera": "^5.2.3",
     "react-native-vision-camera-ocr-plus": "^2.0.6",
     "react-native-vision-camera-worklets": "^5.2.3",

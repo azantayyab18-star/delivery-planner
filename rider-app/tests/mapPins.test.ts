@@ -25,3 +25,9 @@ test('small routes and no limit draw everything', () => {
   assert.equal(visibleStops(route(12, 3), 25).length, 15);
   assert.equal(visibleStops(route(200, 0)).length, 200);
 });
+
+test('the stop being driven to is drawn even past the pin limit', () => {
+  const stops = Array.from({ length: 40 }, (_, i) => ({ id: String(i), kind: (i === 30 ? 'current' : 'upcoming') as 'current' | 'upcoming' }));
+  const shown = visibleStops(stops, 25);
+  assert.ok(shown.some((st) => st.id === '30'));
+});
