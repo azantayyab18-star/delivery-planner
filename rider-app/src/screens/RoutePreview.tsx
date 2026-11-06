@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useState, type ComponentProps } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -7,8 +7,8 @@ import { Screen } from '../components/Kit';
 import { type McName } from '../components/Premium';
 import { LightButton, LightError } from '../components/LightKit';
 import StartPointSheet, { type StartPoint } from '../components/StartPointSheet';
-import { del, get, postPlan, ApiRequestError } from '../lib/api';
-import { queryClient } from '../lib/query';
+import { get, postPlan, ApiRequestError } from '../lib/api';
+import { confirmDeleteRoute } from '../lib/routeActions';
 import { fetchRoute } from '../lib/v2api';
 import { getRouteOrigin } from '../lib/location';
 import { dayLabel, formatMinutes, stopCardText } from '../lib/format';
@@ -214,33 +214,8 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
   // Changing the start of a planned route plans it again from there; a running route keeps its order (Optimise re-orders from the rider).
   const canChangeStart = !existing || route?.status === 'planned';
 
-  // Delete the route (planned or underway). The rider chooses whether its open stops stay (unplanned, same day) or go;
-  // delivered and failed stops always stay in History.
-  const removeRoute = (keepStops: boolean) => {
-    if (!route) return;
-    setDeleting(true);
-    setError('');
-    del<{ stopsKept: number; stopsDeleted: number }>(`/routes/${route.id}?keepStops=${keepStops}`)
-      .then(async () => {
-        await queryClient.invalidateQueries({ queryKey: ['home'] });
-        resetTab('home');
-      })
-      .catch((err) => setError(err instanceof ApiRequestError ? err.message : 'Could not delete the route. Check your connection and try again.'))
-      .finally(() => setDeleting(false));
-  };
   const confirmDelete = () => {
-    if (!route) return;
-    const open = route.stops.filter((st) => st.delivery.status === 'pending' || st.delivery.status === 'in_progress').length;
-    Alert.alert(
-      route.status === 'active' ? 'Delete this route? It is underway.' : 'Delete this route?',
-      open ? `${open} stop${open === 1 ? ' is' : 's are'} not done yet. Keep ${open === 1 ? 'it' : 'them'} to plan again, or delete ${open === 1 ? 'it' : 'them'} too. Delivered and failed stops stay in History.`
-        : 'Delivered and failed stops stay in History.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        ...(open ? [{ text: 'Delete route and stops', style: 'destructive' as const, onPress: () => removeRoute(false) }] : []),
-        { text: open ? 'Delete route, keep stops' : 'Delete route', style: open ? 'default' as const : 'destructive' as const, onPress: () => removeRoute(true) },
-      ],
-    );
+    if (route) confirmDeleteRoute(route, { onDone: () => resetTab('home'), onError: setError, onBusy: setDeleting });
   };
 
   // Rows only change with these, so the list redraws a row only when it must.
@@ -266,6 +241,12 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
             <Text style={s.stats}>{stops.length} stop{stops.length === 1 ? '' : 's'} · approx {km} · {time}</Text>
             {/* Not in the design; kept so the rider can see which route and day these stops go to. */}
             <Text style={s.context} numberOfLines={1}>{routeName}{routeDate ? ` · ${dayLabel(routeDate)}` : ''}{route ? ` · ${ROUTE_STATE[route.status]} · ${vehicleInfo.title}` : ''}</Text>
+            {existing && route && route.status !== 'completed' ? (
+              <Pressable onPress={confirmDelete} disabled={deleting || reordering} hitSlop={6} style={({ pressed }) => [s.deleteRoute, pressed && { opacity: 0.7 }]} accessibilityRole="button" accessibilityLabel="Delete route">
+                {deleting ? <ActivityIndicator size="small" color={c.danger} /> : <Ionicons name="trash-outline" size={16} color={c.danger} />}
+                <Text style={{ color: c.danger, fontSize: 14, fontWeight: '600' }}>Delete route</Text>
+              </Pressable>
+            ) : null}
           </View>
         </View>
 
@@ -299,12 +280,6 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
         ListFooterComponent={<>
         {existing && !stops.length ? <Text style={{ color: c.textSecondary, fontSize: 15, marginTop: 16 }}>{route ? 'No stops on this route.' : 'Route not found. It may have been planned again as a new route.'}</Text> : null}
         <LightError text={error} />
-        {existing && route && route.status !== 'completed' ? (
-          <Pressable onPress={confirmDelete} disabled={deleting || reordering} style={({ pressed }) => [s.deleteRoute, pressed && { opacity: 0.7 }]} accessibilityRole="button">
-            {deleting ? <ActivityIndicator color={c.danger} /> : <Ionicons name="trash-outline" size={20} color={c.danger} />}
-            <Text style={{ color: c.danger, fontSize: 16, fontWeight: '600' }}>Delete route</Text>
-          </Pressable>
-        ) : null}
         </>}
       />
 
@@ -455,7 +430,7 @@ const s = themed(() => ({
   type: { flexDirection: 'row', alignItems: 'center', gap: 14, padding: 14, marginBottom: 10, borderRadius: lr.field, borderWidth: 1, borderColor: c.border },
   typeOn: { borderColor: c.link, backgroundColor: c.linkBg },
   vehicles: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  deleteRoute: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 28, paddingVertical: 14, borderRadius: lr.field, borderWidth: 1, borderColor: c.danger },
+  deleteRoute: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 12, height: 32, borderRadius: 16, backgroundColor: c.dangerBg },
   start: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 20, padding: 14, borderRadius: lr.field, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
   startMissing: { borderColor: c.warning, backgroundColor: c.warningBg },
   startLabel: { color: c.textSecondary, fontSize: 12, fontWeight: '600', letterSpacing: 1.1 },

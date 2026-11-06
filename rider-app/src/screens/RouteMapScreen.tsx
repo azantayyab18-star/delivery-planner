@@ -22,6 +22,7 @@ import SyncStatus from '../components/SyncStatus';
 import { TEST_LOCATION } from '../lib/location';
 import { formatKm, formatMeters } from '../lib/units';
 import { usePrefs } from '../lib/prefs';
+import { confirmDeleteRoute } from '../lib/routeActions';
 
 type Coordinates = { latitude: number; longitude: number };
 type Stop = Route['stops'][number];
@@ -119,7 +120,8 @@ function useRiderPosition() {
 
 /** Today's route (or the one underway), or the route `routeId` (e.g. tomorrow's, planned the night before). */
 export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: boolean; routeId?: string }) {
-  const { navigate, goBack } = useNav();
+  const { navigate, goBack, resetTab } = useNav();
+  const [deleting, setDeleting] = useState(false);
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { position, anchor, denied } = useRiderPosition();
@@ -442,7 +444,17 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
 
         {/* Not in the design: everything below is the existing route list, kept and restyled. */}
         <View style={s.divider} />
-        <Text style={s.routeName} numberOfLines={1}>{route.name || 'Your route'}</Text>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={[s.routeName, { flex: 1 }]} numberOfLines={1}>{route.name || 'Your route'}</Text>
+          {route.status !== 'completed' ? (
+            // Delete the route (also while it is underway); asks what happens to the stops not done yet.
+            <Pressable onPress={() => confirmDeleteRoute(route, { onDone: () => resetTab('home'), onError: setError, onBusy: setDeleting })}
+              disabled={deleting} hitSlop={8} style={({ pressed }) => [s.deleteBtn, pressed && { opacity: 0.7 }]} accessibilityRole="button" accessibilityLabel="Delete route">
+              {deleting ? <ActivityIndicator size="small" color={c.danger} /> : <Ionicons name="trash-outline" size={18} color={c.danger} />}
+              <Text style={{ color: c.danger, fontSize: 14, fontWeight: '600' }}>Delete</Text>
+            </Pressable>
+          ) : null}
+        </View>
         <Text style={[s.muted, { marginTop: 2, marginBottom: 14 }]}>
           {revealing != null ? `Placing stop ${revealing + 1} of ${mapStops.length}…` : `${dayLabel(route.serviceDate)} · ${ROUTE_TYPE_LABEL[route.preference]} · ${planned ? 'Not started' : route.status === 'active' ? 'In progress' : 'Completed'}`}
         </Text>
@@ -604,6 +616,7 @@ const s = themed(() => ({
   editText: { color: c.textLabel, fontSize: 16, fontWeight: '600' },
   divider: { height: 1, backgroundColor: c.border, marginTop: 4, marginBottom: 18 },
   routeName: { color: c.text, fontSize: 18, fontWeight: '700' },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 12, height: 34, borderRadius: 17, backgroundColor: c.dangerBg, marginLeft: 12 },
 
   step: { flexDirection: 'row', gap: 12, paddingRight: 10, borderRadius: lr.field },
   stepSelected: { backgroundColor: c.soft },
