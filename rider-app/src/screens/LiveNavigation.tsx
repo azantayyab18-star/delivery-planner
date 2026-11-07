@@ -14,7 +14,7 @@ import { decodePolyline } from '../lib/polyline';
 import { formatMinutes, stopCardText, stopLabel, todayKey } from '../lib/format';
 import { TEST_LOCATION } from '../lib/location';
 import {
-  announceAt, distanceText, distanceToPath, instruction, metersBetween, nextStep, OFF_ROUTE_METERS, remaining, spoken, stepPoint, type Step,
+  announceAt, distanceText, distanceToPath, instruction, metersBetween, nextStep, OFF_ROUTE_METERS, pointAlong, remaining, spoken, stepPoint, type Step,
 } from '../lib/guidance';
 import { say, setVoiceMuted, stopSpeaking, voiceMuted } from '../lib/navVoice';
 import type { Route } from '../lib/types';
@@ -78,7 +78,13 @@ function useLivePosition() {
 export default function LiveNavigation({ stopId }: { stopId?: string }) {
   const { navigate, resetTo, goBack } = useNav();
   const focused = useIsFocused();
-  const { position, heading, denied } = useLivePosition();
+  const gps = useLivePosition();
+  const { denied } = gps;
+  // Development only: "Simulate drive" moves the rider along the road line (to test turns, voice and arrival at a desk).
+  const [sim, setSim] = useState<{ path: Coordinates[]; meters: number } | null>(null);
+  const simAt = sim ? pointAlong(sim.path, sim.meters) : null;
+  const position = simAt?.point ?? gps.position;
+  const heading = simAt ? simAt.bearing : gps.heading;
   const [route, setRoute] = useState<Route | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -119,6 +125,15 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
   const target = current ? coordsOf(current) : null;
   const vehicle = route?.vehicle ?? 'bike';
   const live = guidance && current && guidance.key === current.delivery.id ? guidance : null;
+  // A new line (next stop, or a reroute) is driven from its start.
+  if (sim && live && sim.path !== live.path) setSim({ path: live.path, meters: 0 });
+  useEffect(() => {
+    if (!sim) return;
+    // About 22 km/h on a bike, 43 km/h in a van, one step a second.
+    const step = vehicle === 'van' ? 12 : 6;
+    const timer = setInterval(() => setSim((s) => (s ? { ...s, meters: s.meters + step } : s)), 1000);
+    return () => clearInterval(timer);
+  }, [sim !== null, vehicle]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // A road route from the rider to the stop, from our API (our OSRM): for each new stop, again when the rider leaves the
   // line (at most every few seconds), and, while there is none (the request failed), after moving a little.
@@ -261,6 +276,13 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
         <Pressable onPress={() => navigate('RoutePreview', { routeId: route.id })} hitSlop={6} style={s.round} accessibilityLabel="All stops">
           <Ionicons name="list" size={24} color={c.text} />
         </Pressable>
+        {__DEV__ ? (
+          // Development builds only: drive along the line without moving the phone.
+          <Pressable onPress={() => setSim((v) => (v ? null : live ? { path: live.path, meters: 0 } : v))} disabled={!live} hitSlop={6}
+            style={[s.round, sim && { backgroundColor: c.link }, !live && { opacity: 0.5 }]} accessibilityLabel={sim ? 'Stop the simulated drive' : 'Simulate drive'}>
+            <MaterialCommunityIcons name={sim ? 'pause' : 'car-arrow-right'} size={24} color={sim ? c.onInk : c.text} />
+          </Pressable>
+        ) : null}
       </View>
 
       {/* Bottom: time, distance and arrival, the stop, and what to do there */}

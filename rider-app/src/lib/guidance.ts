@@ -113,3 +113,30 @@ export function distanceToPath(position: Point, path: Point[]) {
 
 /** When to speak before a turn: earlier for a van (faster, bigger), then again just before it. */
 export const announceAt = (vehicle: 'bike' | 'van') => (vehicle === 'van' ? { early: 300, now: 60 } : { early: 150, now: 30 });
+
+/**
+ * Development: the point `meters` along a line and the direction of travel there (degrees from north), for the
+ * simulated drive. Past the end: the last point.
+ */
+export function pointAlong(path: Point[], meters: number): { point: Point; bearing: number } | null {
+  if (!path.length) return null;
+  const bearing = (a: Point, b: Point) => {
+    const rad = (d: number) => (d * Math.PI) / 180;
+    const y = Math.sin(rad(b.longitude - a.longitude)) * Math.cos(rad(b.latitude));
+    const x = Math.cos(rad(a.latitude)) * Math.sin(rad(b.latitude)) - Math.sin(rad(a.latitude)) * Math.cos(rad(b.latitude)) * Math.cos(rad(b.longitude - a.longitude));
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+  };
+  let left = Math.max(0, meters);
+  for (let i = 0; i < path.length - 1; i++) {
+    const a = path[i];
+    const b = path[i + 1];
+    const seg = metersBetween(a, b);
+    if (left <= seg && seg > 0) {
+      const t = left / seg;
+      return { point: { latitude: a.latitude + (b.latitude - a.latitude) * t, longitude: a.longitude + (b.longitude - a.longitude) * t }, bearing: bearing(a, b) };
+    }
+    left -= seg;
+  }
+  const n = path.length;
+  return { point: path[n - 1], bearing: n > 1 ? bearing(path[n - 2], path[n - 1]) : 0 };
+}

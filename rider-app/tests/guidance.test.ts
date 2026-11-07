@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { distanceText, distanceToPath, instruction, metersBetween, nextStep, remaining, spoken, type Step } from '../src/lib/guidance';
+import { distanceText, distanceToPath, instruction, metersBetween, nextStep, pointAlong, remaining, spoken, type Step } from '../src/lib/guidance';
 
 // A ride east along a street, a left turn 200 m on, then arrival 100 m north of it.
 const at = (lon: number, lat: number): [number, number] => [lon, lat];
@@ -48,4 +48,13 @@ test('leaving the route line is noticed', () => {
   assert.ok(distanceToPath({ latitude: 53.3, longitude: -6.2985 }, path) < 1);
   const off = distanceToPath({ latitude: 53.3006, longitude: -6.2985 }, path);
   assert.ok(off > 60 && off < 70, String(off));
+});
+
+test('the simulated drive moves along the line and faces the way it goes', () => {
+  const path = [{ latitude: 53.3, longitude: -6.3 }, { latitude: 53.3, longitude: -6.297 }, { latitude: 53.3009, longitude: -6.297 }];
+  const east = pointAlong(path, 100)!;
+  assert.ok(Math.abs(metersBetween(path[0], east.point) - 100) < 1 && Math.round(east.bearing) === 90);
+  const north = pointAlong(path, 250)!;
+  assert.ok(Math.round(north.bearing) === 0 && north.point.latitude > 53.3);
+  assert.deepEqual(pointAlong(path, 99999)!.point, path[2]);
 });
