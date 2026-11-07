@@ -22,7 +22,7 @@ import { useFocusEffect } from '../lib/useFocusEffect';
 import { useNav } from '../lib/nav';
 import { fetchCurrentRoute } from '../lib/v2api';
 import { light as c, themed, statusBarStyle } from '../lib/theme';
-import { formatKm } from '../lib/units';
+import { formatKm, speedUnit, speedValue } from '../lib/units';
 
 type Guidance = { key: string; path: Coordinates[]; km: number; min: number; steps: Step[] };
 type Stop = Route['stops'][number];
@@ -48,6 +48,8 @@ const clock = (secondsFromNow: number) => new Date(Date.now() + secondsFromNow *
 function useLivePosition() {
   const [position, setPosition] = useState<Coordinates | null>(TEST_LOCATION);
   const [heading, setHeading] = useState<number | null>(null);
+  // Speed over ground from the GPS itself (free, no service): metres per second, null until known.
+  const [speed, setSpeed] = useState<number | null>(null);
   const [denied, setDenied] = useState(false);
   const focused = useIsFocused();
   useEffect(() => {
@@ -62,12 +64,14 @@ function useLivePosition() {
         setPosition({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
         // Heading is only meaningful while moving.
         if (loc.coords.heading != null && loc.coords.heading >= 0 && (loc.coords.speed ?? 0) > 1) setHeading(loc.coords.heading);
+        // Some phones report -1 or nothing when they cannot tell; standing still reads as 0.
+        setSpeed(loc.coords.speed != null && loc.coords.speed >= 0 ? loc.coords.speed : null);
       });
       if (mounted) sub = next; else next.remove();
     })().catch(() => { /* the map still shows the stops without GPS */ });
     return () => { mounted = false; sub?.remove(); };
   }, [focused]);
-  return { position, heading, denied };
+  return { position, heading, speed, denied };
 }
 
 /**
@@ -125,6 +129,8 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
   const current = open.find((st) => st.delivery.id === stopId) || open[0] || null;
   const target = current ? coordsOf(current) : null;
   const vehicle = route?.vehicle ?? 'bike';
+  // The simulated drive goes at a set pace (see its step below); otherwise the GPS speed.
+  const speed = sim ? (vehicle === 'van' ? 12 : 6) : gps.speed;
   const live = guidance && current && guidance.key === current.delivery.id ? guidance : null;
   // A new line (next stop, or a reroute) is driven from its start.
   if (sim && live && sim.path !== live.path) setSim({ path: live.path, meters: 0 });
@@ -288,6 +294,13 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
 
       {/* Bottom: time, distance and arrival, the stop, and what to do there */}
       <View style={s.sheet}>
+        {/* Live speed, from the phone's GPS (shown once it is known). */}
+      {speed != null ? (
+        <View style={s.speed} pointerEvents="none" accessibilityLabel={`Speed ${speedValue(speed)} ${speedUnit()}`}>
+          <Text style={s.speedValue}>{speedValue(speed)}</Text>
+          <Text style={s.speedUnit}>{speedUnit()}</Text>
+        </View>
+      ) : null}
         {!following ? (
           <Pressable onPress={() => setRecenter(Date.now())} style={s.recenter} accessibilityLabel="Re-centre">
             <MaterialCommunityIcons name="navigation-variant" size={20} color={c.link} />
@@ -355,6 +368,10 @@ const s = themed(() => ({
   thenText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   denied: { marginTop: 8, color: c.warning, fontSize: 13, textAlign: 'center', backgroundColor: c.warningBg, padding: 8, borderRadius: 12, overflow: 'hidden' },
   side: { position: 'absolute', right: 12, top: 150, gap: 12 },
+  // On the bottom panel's top edge (right), like Re-centre on its left: it moves with the panel.
+  speed: { position: 'absolute', right: 16, top: -78, width: 64, height: 64, borderRadius: 32, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', ...shadow },
+  speedValue: { color: c.text, fontSize: 22, fontWeight: '800', lineHeight: 24 },
+  speedUnit: { color: c.textSecondary, fontSize: 11, fontWeight: '600' },
   round: { width: 50, height: 50, borderRadius: 25, backgroundColor: c.surface, alignItems: 'center', justifyContent: 'center', ...shadow },
   sheet: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 16, backgroundColor: c.surface, borderTopLeftRadius: 24, borderTopRightRadius: 24, ...shadow },
   recenter: { position: 'absolute', top: -60, left: 16, flexDirection: 'row', alignItems: 'center', gap: 8, height: 46, paddingHorizontal: 18, borderRadius: 23, backgroundColor: c.surface, ...shadow },

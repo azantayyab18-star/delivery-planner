@@ -33,6 +33,10 @@ export function formatMeters(m: number) {
   return `${(m / 1000).toFixed(m < 10000 ? 1 : 0)} km`;
 }
 
+/** A speed from the phone's GPS (metres per second) as a whole number in km/h or mph. */
+export const speedValue = (metersPerSecond: number) => Math.round(metersPerSecond * (units === 'mi' ? 2.236936 : 3.6));
+export const speedUnit = () => (units === 'mi' ? 'mph' : 'km/h');
+
 /** formatMeters in words, for the voice: "200 metres", "1.2 miles". */
 export const spokenMeters = (m: number) => formatMeters(m)
   .replace(/ m$/, ' metres').replace(/ km$/, ' kilometres').replace(/ yd$/, ' yards').replace(/^1\.0 mi$|^1 mi$/, '1 mile').replace(/ mi$/, ' miles');

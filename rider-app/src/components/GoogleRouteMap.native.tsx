@@ -188,7 +188,7 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
           <StopMarker key={`${st.id}:${st.kind}:${st.label}`} latitude={st.latitude} longitude={st.longitude} title={st.title} kind={st.kind} label={st.label} light={!!light} />
         ))}
 
-        {position ? <PositionMarker latitude={position.latitude} longitude={position.longitude} /> : null}
+        {position ? <PositionMarker latitude={position.latitude} longitude={position.longitude} heading={follow ? heading ?? null : null} /> : null}
       </MapView>
 
       {pinning ? (
@@ -239,12 +239,28 @@ const StopMarker = memo(function StopMarker({ latitude, longitude, title, kind, 
   );
 });
 
-const PositionMarker = memo(function PositionMarker({ latitude, longitude }: Coordinates) {
-  // Its look never changes, so it only tracks once; moving it does not need tracking.
-  const track = useBriefTracking('position');
+/**
+ * The rider. While navigating with a known direction (`heading`, degrees from north): an arrow like a car satnav's,
+ * lying flat on the map and turned the way the rider travels. Otherwise a blue dot.
+ */
+const PositionMarker = memo(function PositionMarker({ latitude, longitude, heading }: Coordinates & { heading: number | null }) {
+  const arrow = heading != null;
+  // Its look only changes between dot and arrow, so it only tracks then; moving or turning it does not need tracking.
+  const track = useBriefTracking(arrow ? 'arrow' : 'dot');
   const coordinate = useMemo(() => ({ latitude, longitude }), [latitude, longitude]);
+  if (arrow) {
+    return (
+      <Marker key="arrow" coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} flat rotation={heading} tracksViewChanges={track} zIndex={20} title="You are here">
+        <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
+          {/* A white edge under the blue arrow, so it reads on any map colour. */}
+          <MaterialCommunityIcons name="navigation" size={40} color="#ffffff" style={{ position: 'absolute' }} />
+          <MaterialCommunityIcons name="navigation" size={30} color="#3D8BFF" />
+        </View>
+      </Marker>
+    );
+  }
   return (
-    <Marker coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={track} zIndex={20} title="You are here">
+    <Marker key="dot" coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={track} zIndex={20} title="You are here">
       <View style={{ width: 22, height: 22, borderRadius: 11, backgroundColor: 'rgba(61,139,255,0.3)', alignItems: 'center', justifyContent: 'center' }}>
         <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: '#3D8BFF', borderWidth: 2, borderColor: '#fff' }} />
       </View>
