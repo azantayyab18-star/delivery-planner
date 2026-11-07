@@ -230,8 +230,9 @@ async def test_navigation_reroutes_through_the_backend(client):
     assert (await client.post("/api/v2/navigation/route", headers=auth, json={"start": {"latitude": 99, "longitude": 0}, "target": {"latitude": 1, "longitude": 1}})).status_code == 400
 
 
-async def test_a_start_far_from_the_stops_is_left_out_of_the_line(client):
-    """Planned with the phone in another country: the line runs through the stops only, no 6,000 km first leg."""
+async def test_a_start_outside_the_map_is_left_out_of_the_line(client):
+    """Planned with the phone in another country: the line runs through the stops only. A start elsewhere on the map
+    (another town, however far) stays."""
     _, auth = await rider(client, "p6-far-start@example.com")
     created = (await client.post("/api/v2/deliveries/batch", headers=auth, json={"items": [item(i) for i in range(3)]})).json()["data"]["stops"]
     ids = [s["id"] for s in created]
@@ -239,15 +240,22 @@ async def test_a_start_far_from_the_stops_is_left_out_of_the_line(client):
 
     async def road(points, steps):
         seen.append(points)
+        # OSRM moves a start in Pakistan thousands of km to the map's nearest road; Belfast is on the map.
+        snap = 6_000_000.0 if points[0]["latitude"] == 31.52 else 3.0
         return {"path": "_p~iF~ps|U_ulLnnqC", "legs": [{"distanceKm": 1.0, "durationMin": 4.0}] * (len(points) - 1),
-                "distanceKm": float(len(points) - 1), "durationMin": 4.0 * (len(points) - 1)}
+                "distanceKm": float(len(points) - 1), "durationMin": 4.0 * (len(points) - 1), "startSnapM": snap}
 
     routing_service.set_route_for_tests(road)
     try:
-        for origin, expected in [({"latitude": 31.52, "longitude": 74.35}, 3), ({"latitude": 53.30, "longitude": -6.30}, 4)]:
+        for origin, expected in [({"latitude": 31.52, "longitude": 74.35}, 3), ({"latitude": 54.60, "longitude": -5.93}, 4)]:
             built = (await client.post("/api/v1/routes/build", headers=auth, json={"deliveryIds": ids, "origin": origin})).json()["data"]
             line = (await client.get(f"/api/v2/routes/{built['id']}/geometry", headers=auth)).json()["data"]
-            assert len(seen[-1]) == expected and len(line["legs"]) == 3
-            assert (seen[-1][0]["latitude"] == 53.30) == (expected == 4)
+            assert len(seen[-1]) == expected and len(line["legs"]) == 3 and line["path"]
+
+        # Navigation: from anywhere on the map, whatever the distance; outside it, no route and the reason.
+        far = await client.post("/api/v2/navigation/route", headers=auth, json={"start": {"latitude": 31.52, "longitude": 74.35}, "target": {"latitude": 53.3, "longitude": -6.3}})
+        assert far.json()["data"]["path"] is None and far.json()["data"]["reason"] == "outside_map"
+        belfast = await client.post("/api/v2/navigation/route", headers=auth, json={"start": {"latitude": 54.60, "longitude": -5.93}, "target": {"latitude": 53.3, "longitude": -6.3}})
+        assert belfast.json()["data"]["path"]
     finally:
         routing_service.set_route_for_tests()

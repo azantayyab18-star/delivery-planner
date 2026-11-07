@@ -124,7 +124,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
     } catch (err) {
       if (paywall(err)) return 'A plan is needed';
       const message = err instanceof ApiRequestError
-        ? err.code === 'ROUTE_ACTIVE' ? 'Another route is underway today. Finish it first, then this route can be planned again.' : err.message
+        ? err.code === 'ROUTE_ACTIVE' ? 'Another route is underway today. Put it on hold (on its map) or finish it, then this route can be planned again.' : err.message
         : 'Could not re-plan the route. Check your connection and try again.';
       setError(message);
       return message;
@@ -165,7 +165,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
       resetTo('RouteMapScreen', { reveal: true, routeId: built.data.id });
     } catch (err) {
       if (!paywall(err)) setError(err instanceof ApiRequestError
-        ? err.code === 'ROUTE_ACTIVE' ? 'Finish your current route first. Your new stops are saved and will be here.' : err.message
+        ? err.code === 'ROUTE_ACTIVE' ? 'Another route is underway. Put it on hold (on its map) or finish it first. Your new stops are saved and will be here.' : err.message
         : 'Could not plan the route. Check your connection and try again.');
     } finally {
       setPlanning(false);
@@ -361,7 +361,7 @@ export default function RoutePreview({ name, date, ids, routeId }: { name?: stri
 
 type Tag = { text: string; fg: string; bg: string; icon: ComponentProps<typeof Ionicons>['name'] };
 
-const ROUTE_STATE: Record<Route['status'], string> = { planned: 'Planned', active: 'In progress', completed: 'Completed' };
+const ROUTE_STATE: Record<Route['status'], string> = { planned: 'Planned', active: 'In progress', paused: 'On hold', completed: 'Completed' };
 
 /** "Location not verified" for a stop not pinned exactly yet (it is looked up when the route is planned). */
 // draft: stops being reviewed before planning; open: an existing route (rows open the stop); open-finished: also finished.

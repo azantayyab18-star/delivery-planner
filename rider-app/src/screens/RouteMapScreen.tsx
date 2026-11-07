@@ -23,6 +23,7 @@ import { TEST_LOCATION } from '../lib/location';
 import { formatKm, formatMeters } from '../lib/units';
 import { usePrefs } from '../lib/prefs';
 import { confirmDeleteRoute } from '../lib/routeActions';
+import { queryClient } from '../lib/query';
 
 type Coordinates = { latitude: number; longitude: number };
 type Stop = Route['stops'][number];
@@ -272,6 +273,22 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
     }
   };
 
+  // Hold the route underway (another one can then be started) and resume it later: one route underway at a time.
+  const [holding, setHolding] = useState(false);
+  const holdRoute = async () => {
+    if (!route) return;
+    setHolding(true);
+    try {
+      setRoute((await post<Route>(`/routes/${route.id}/pause`)).data);
+      setError('');
+      await queryClient.invalidateQueries({ queryKey: ['home'] });
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : 'Could not put the route on hold');
+    } finally {
+      setHolding(false);
+    }
+  };
+
   const startPin = useCallback((stop: Stop) => {
     // Placing a pin needs the map in view.
     page.current?.scrollToOffset({ offset: 0, animated: true });
@@ -432,7 +449,17 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
             icon={<Ionicons name="navigate-outline" size={22} color={c.onInk} />}
             onPress={() => void startRoute()} loading={starting} style={{ marginTop: 24 }} />
         ) : route.status === 'active' && total ? (
-          <LightButton title="Start navigation" icon={<Ionicons name="navigate-outline" size={22} color={c.onInk} />} onPress={() => navigate('LiveNavigation')} style={{ marginTop: 24 }} />
+          <>
+            <LightButton title="Start navigation" icon={<Ionicons name="navigate-outline" size={22} color={c.onInk} />} onPress={() => navigate('LiveNavigation')} style={{ marginTop: 24 }} />
+            {/* Stop for now and start another route; this one resumes where it was. */}
+            <LightButton title="Put route on hold" variant="outline" icon={<Ionicons name="pause" size={20} color={c.text} />}
+              onPress={() => void holdRoute()} loading={holding} style={{ marginTop: 12 }} />
+          </>
+        ) : route.status === 'paused' ? (
+          <>
+            <Text style={[s.muted, { marginTop: 20 }]}>On hold. Resume it when no other route is underway.</Text>
+            <LightButton title="Resume route" icon={<Ionicons name="play" size={20} color={c.onInk} />} onPress={() => void startRoute()} loading={starting} style={{ marginTop: 12 }} />
+          </>
         ) : null}
         {planned ? (
           // Add stops with this route's stops on the list: add or remove, then Review plans the route again with them.
@@ -456,7 +483,7 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
           ) : null}
         </View>
         <Text style={[s.muted, { marginTop: 2, marginBottom: 14 }]}>
-          {revealing != null ? `Placing stop ${revealing + 1} of ${mapStops.length}…` : `${dayLabel(route.serviceDate)} · ${ROUTE_TYPE_LABEL[route.preference]} · ${planned ? 'Not started' : route.status === 'active' ? 'In progress' : 'Completed'}`}
+          {revealing != null ? `Placing stop ${revealing + 1} of ${mapStops.length}…` : `${dayLabel(route.serviceDate)} · ${ROUTE_TYPE_LABEL[route.preference]} · ${planned ? 'Not started' : route.status === 'active' ? 'In progress' : route.status === 'paused' ? 'On hold' : 'Completed'}`}
         </Text>
 
         {denied ? <Text style={[s.muted, { marginBottom: 12 }]}>Allow location access so your position shows on the map.</Text> : null}

@@ -29,6 +29,9 @@ OSRM_MAX_POINTS = 2500
 GOOGLE_BLOCK = 25
 GOOGLE_MATRIX_URL = "https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix"
 
+# A first point farther than this from any road on our map is outside the map (OSRM would start somewhere else).
+OFF_MAP_METERS = 2000
+
 # The vehicle the current request or job plans for: "bike" (default) or "van".
 vehicle: ContextVar[str] = ContextVar("vehicle", default="bike")
 
@@ -161,6 +164,9 @@ async def _osrm_route(points: list[dict], steps: bool) -> dict | None:
         "path": best["geometry"],
         "legs": [{"distanceKm": round(leg["distance"] / 1000, 2), "durationMin": round(leg["duration"] / 60, 1)} for leg in best["legs"]],
         "distanceKm": round(best["distance"] / 1000, 2), "durationMin": round(best["duration"] / 60, 1),
+        # How far the first point is from the road OSRM started on (m). Far = that point is outside our map (another
+        # country), and the route would start from wherever the map's nearest road happens to be.
+        "startSnapM": round(float((body.get("waypoints") or [{}])[0].get("distance") or 0), 1),
     }
     if steps:
         out["steps"] = [{"distance": st["distance"], "duration": st["duration"], "name": st.get("name") or "",

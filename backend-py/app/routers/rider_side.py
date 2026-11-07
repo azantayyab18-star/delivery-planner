@@ -189,6 +189,14 @@ async def delete_route(request: Request):
     return respond(await routes.delete(actor, valid["params"].id, keep_stops=valid["query"].keepStops))
 
 
+@routes_router.post("/{id}/pause")
+async def pause_route(request: Request):
+    """Puts the route underway on hold, so another can be started; resume it with /start."""
+    actor = await authenticate(request, "rider")
+    params = (await validate(request, params=IdParams))["params"]
+    return respond(await routes.pause(actor, params.id))
+
+
 @routes_router.post("/{id}/start")
 async def start_route(request: Request):
     actor = await authenticate(request, "rider")

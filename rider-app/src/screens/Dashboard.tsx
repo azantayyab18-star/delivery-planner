@@ -216,6 +216,7 @@ const stopCount = (n: number, suffix: string) => `${n} stop${n === 1 ? '' : 's'}
 const routeMeta = (route: HomeData['routes'][number]) => {
   const stops = route.progress.total;
   if (route.status === 'active') return stopCount(stops, '· In progress');
+  if (route.status === 'paused') return stopCount(stops, '· On hold');
   return stopCount(stops, 'ready');
 };
 

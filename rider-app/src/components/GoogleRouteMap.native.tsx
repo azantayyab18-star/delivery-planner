@@ -64,14 +64,15 @@ const MARKER_COLORS: Record<MapStop['kind'], { bg: string; fg: string; border: s
   done: { bg: c.success, fg: '#05301E', border: '#fff' },
   failed: { bg: c.danger, fg: '#fff', border: '#fff' },
 };
-const LIGHT_MARKER_COLORS: Record<MapStop['kind'], { bg: string; fg: string; border: string }> = {
+// Read when drawn: the light palette changes with light/dark mode.
+const lightMarkerColors = (): Record<MapStop['kind'], { bg: string; fg: string; border: string }> => ({
   next: { bg: l.link, fg: '#fff', border: '#fff' },
   current: { bg: l.ink, fg: '#fff', border: '#fff' },
   upcoming: { bg: l.link, fg: '#fff', border: '#fff' },
   last: { bg: l.ink, fg: '#fff', border: '#fff' },
   done: { bg: '#E4E4E7', fg: l.textLabel, border: '#fff' },
   failed: { bg: l.danger, fg: '#fff', border: '#fff' },
-};
+});
 
 // Farther than this from every stop, the rider's position is left out of the view and the line (still shown as a dot).
 const NEAR_ROUTE_KM = 50;
@@ -223,7 +224,7 @@ function useBriefTracking(look: string) {
 const StopMarker = memo(function StopMarker({ latitude, longitude, title, kind, label, light }: {
   latitude: number; longitude: number; title: string; kind: MapStop['kind']; label: string; light: boolean;
 }) {
-  const col = (light ? LIGHT_MARKER_COLORS : MARKER_COLORS)[kind];
+  const col = (light ? lightMarkerColors() : MARKER_COLORS)[kind];
   const big = kind === 'next' || kind === 'current';
   const track = useBriefTracking(`${kind}|${label}|${light}`);
   const coordinate = useMemo(() => ({ latitude, longitude }), [latitude, longitude]);

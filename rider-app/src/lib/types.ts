@@ -39,7 +39,7 @@ export type RouteSummary = { total: number; delivered: number; failed: number; p
 /** What the rider drives on a route: its roads, stop order and directions follow it. */
 export type Vehicle = 'bike' | 'van';
 export type Route = {
-  id: string; name: string | null; status: 'planned' | 'active' | 'completed'; preference: RoutePreference; serviceDate: string;
+  id: string; name: string | null; status: 'planned' | 'active' | 'paused' | 'completed'; preference: RoutePreference; serviceDate: string;
   vehicle: Vehicle;
   origin: { latitude: number; longitude: number } | null; distanceKm: number; durationMin: number;
   startedAt: string | null; completedAt: string | null; stops: RouteStop[];

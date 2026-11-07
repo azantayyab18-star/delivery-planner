@@ -31,8 +31,6 @@ type Stop = Route['stops'][number];
 const ARRIVED_METERS = 40;
 // Without a road route (the request failed), try again after moving this far.
 const RETRY_METERS = 150;
-// Farther than this from the stop (another city or country), there is no point guiding: the screen says so instead.
-const FAR_METERS = 50_000;
 // Never ask for a new route more often than this while off the route.
 const REROUTE_GAP_MS = 8000;
 // Google-Maps-like guidance colours: a deep green turn banner with white text, in both light and dark mode.
@@ -92,6 +90,8 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
   const [muted, setMuted] = useState(voiceMuted());
   const [expanded, setExpanded] = useState(false);
   const request = useRef(0);
+  // The stop whose route could not start because the rider is outside our map (another country).
+  const [offMap, setOffMap] = useState<string | null>(null);
   const lastAsked = useRef<{ at: number; from: Coordinates; key: string; pending: boolean } | null>(null);
   const spokenFor = useRef(new Set<string>());
 
@@ -123,7 +123,7 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
   // A road route from the rider to the stop, from our API (our OSRM): for each new stop, again when the rider leaves the
   // line (at most every few seconds), and, while there is none (the request failed), after moving a little.
   useEffect(() => {
-    if (!position || !target || !current || metersBetween(position, target) > FAR_METERS) return;
+    if (!position || !target || !current) return;
     const asked = lastAsked.current;
     const sameStop = asked?.key === current.delivery.id;
     const due = !live
@@ -135,9 +135,12 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
     const from = position;
     const stop = current;
     lastAsked.current = { at: Date.now(), from, key: stop.delivery.id, pending: true };
-    post<{ path: string | null; distanceKm: number | null; durationMin: number | null; steps: Step[] }>('/v2/navigation/route', { start: from, target, vehicle })
+    post<{ path: string | null; distanceKm: number | null; durationMin: number | null; steps: Step[]; reason?: string }>('/v2/navigation/route', { start: from, target, vehicle })
       .then(({ data }) => {
-        if (!data.path || id !== request.current) return;
+        if (id !== request.current) return;
+        // Guided from any distance on our map; outside it (another country) the screen says so.
+        setOffMap(data.reason === 'outside_map' ? stop.delivery.id : null);
+        if (!data.path) return;
         setGuidance({ key: stop.delivery.id, path: decodePolyline(data.path), km: data.distanceKm ?? 0, min: data.durationMin ?? 0, steps: data.steps });
         spokenFor.current.clear();
         const first = data.steps[1];
@@ -162,7 +165,7 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
 
   const toTarget = position && target ? metersBetween(position, target) : null;
   const arrived = toTarget != null && toTarget <= ARRIVED_METERS;
-  const farAway = toTarget != null && toTarget > FAR_METERS;
+  const farAway = !!current && offMap === current.delivery.id;
   const step = live?.steps[stepIndex];
   const left = live && position && !farAway ? remaining(live.steps, stepIndex, position) : null;
   const turn = arrived ? { text: `Arrived at stop ${current?.order}`, icon: 'flag-checkered' as const } : instruction(step);
@@ -237,8 +240,8 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
           <MaterialCommunityIcons name={turn.icon as McName} size={44} color="#fff" />
           <View style={{ flex: 1, marginLeft: 14 }}>
             {!arrived && left ? <Text style={s.turnDistance}>{distanceText(left.toTurn)}</Text> : null}
-            <Text style={arrived || !left ? s.turnDistance : s.turnText} numberOfLines={2}>{farAway ? 'You are far from this stop' : live || arrived ? turn.text : position ? 'Finding the road route…' : 'Waiting for GPS…'}</Text>
-            {farAway && toTarget != null ? <Text style={s.turnText}>{formatKm(toTarget / 1000, { whole: true })} away. Directions start within {formatKm(FAR_METERS / 1000, { whole: true })} of the stop.</Text> : null}
+            <Text style={arrived || !left ? s.turnDistance : s.turnText} numberOfLines={2}>{farAway ? 'You are outside the map' : live || arrived ? turn.text : position ? 'Finding the road route…' : 'Waiting for GPS…'}</Text>
+            {farAway && toTarget != null ? <Text style={s.turnText}>{formatKm(toTarget / 1000, { whole: true })} away, outside our map (Ireland and the UK). Directions start once you are on it.</Text> : null}
           </View>
         </View>
         {thenTurn && !arrived ? (

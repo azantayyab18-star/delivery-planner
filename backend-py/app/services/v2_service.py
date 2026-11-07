@@ -19,7 +19,6 @@ from ..http import iso, js_round, now, today_key
 from ..uploads import UploadedFile
 from . import delivery_service as deliveries
 from . import routing_service
-from .geo import haversine_km
 from .geocoding_service import find_eircode, normalize_eircodes
 from .route_service import OPEN, _left_over_where, _stop_counts, find_current, on_stop_finished, route_summaries, summarize_counts
 from .serializers import clean_delivery_address
@@ -214,7 +213,7 @@ async def home(actor: dict, date: str) -> dict:
     today_where = {"riderId": rider_id, "OR": [{"serviceDate": date}, {"status": {"in": list(OPEN)}, "serviceDate": {"lte": date}}]}
     status_rows, routes, unplanned_rows, left_rows, subscription = await asyncio.gather(
         db.delivery.group_by(by=["status"], where=today_where, count=True),
-        db.route.find_many(where={"riderId": rider_id, "status": {"in": ["planned", "active"]}, "serviceDate": {"gte": date}},
+        db.route.find_many(where={"riderId": rider_id, "status": {"in": ["planned", "active", "paused"]}, "serviceDate": {"gte": date}},
                            order=[{"serviceDate": "asc"}, {"createdAt": "asc"}, {"id": "asc"}], take=100),
         db.delivery.group_by(by=["serviceDate"], where={"riderId": rider_id, "status": "pending", "routeId": None, "serviceDate": {"gte": date}},
                              count=True),
@@ -375,10 +374,6 @@ async def upload_proof(actor: dict, stop_id: str, file: UploadedFile | None, kin
 
 # ---------- Road lines (P6b.4) and navigation (P6b.5), from our OSRM: the app never calls an OSRM server ----------
 
-# Same distance as the app's map (GoogleRouteMap NEAR_ROUTE_KM).
-FAR_START_KM = 50
-
-
 async def route_geometry(actor: dict, route_id: str) -> tuple[str, dict]:
     """(version, line) for the route: the road path from its start through the open located stops in route order, with
     each stop's leg. Made once per route version (its ETag) and kept in route_geometries. path is None without a road
@@ -390,15 +385,16 @@ async def route_geometry(actor: dict, route_id: str) -> tuple[str, dict]:
     route, rows = await asyncio.gather(_mine(actor, route_id), db.query_raw(_STOPS_SQL, route_id, None))
     stops = [r for r in rows if r["status"] in OPEN and r["addressGeocoded"] and r["addressLatitude"] is not None]
     origin = [{"latitude": route.originLatitude, "longitude": route.originLongitude}] if route.originLatitude is not None else []
-    # A start far from the stops (the phone was in another city or country when the route was planned) is left out of the
-    # line, as the app's map does: one long leg would draw a line across the country and swamp the distance left.
-    if origin and stops and haversine_km(origin[0], {"latitude": stops[0]["addressLatitude"], "longitude": stops[0]["addressLongitude"]}) > FAR_START_KM:
-        origin = []
     points = origin + [{"latitude": r["addressLatitude"], "longitude": r["addressLongitude"]} for r in stops]
     # The line follows the roads of the route's vehicle (a van's line never takes a bike-only path).
     token = routing_service.vehicle.set(str(route.vehicle))
     try:
         road = await routing_service.road_path(points)
+        # A start outside our map (the phone was in another country when the route was planned) is left out: the line
+        # would begin at whatever road is nearest to it. A start elsewhere on the map stays, however far.
+        if road and origin and road.get("startSnapM", 0) > routing_service.OFF_MAP_METERS:
+            origin = []
+            road = await routing_service.road_path(points[1:])
     finally:
         routing_service.vehicle.reset(token)
     legs = (road or {}).get("legs") or []
@@ -426,4 +422,8 @@ async def navigation_route(start: dict, target: dict, vehicle: str = "bike") -> 
         road = await routing_service.road_path([start, target], steps=True)
     finally:
         routing_service.vehicle.reset(token)
-    return road or {"path": None, "distanceKm": None, "durationMin": None, "steps": []}
+    # Any distance is guided (another town, across the country) while the rider is on our map. Outside it (another
+    # country) the app says so: a route from the map's nearest road would be wrong.
+    if road and road.get("startSnapM", 0) > routing_service.OFF_MAP_METERS:
+        return {"path": None, "distanceKm": None, "durationMin": None, "steps": [], "reason": "outside_map"}
+    return road or {"path": None, "distanceKm": None, "durationMin": None, "steps": [], "reason": "no_router"}

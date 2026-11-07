@@ -12,7 +12,7 @@ import { light as l, premium as c } from '../lib/theme';
  */
 export default function StopLines({ stop, light = false }: { stop: Delivery; light?: boolean }) {
   const { title, address } = stopCardText(stop);
-  const t = light ? LIGHT : DARK;
+  const t = light ? lightTone() : DARK;
   return (
     <View>
       <Text style={{ color: t.text, fontWeight: light ? '700' : '800', fontSize: light ? 17 : 14 }} numberOfLines={address ? 1 : 2}>{title}</Text>
@@ -23,10 +23,11 @@ export default function StopLines({ stop, light = false }: { stop: Delivery; lig
 }
 
 const DARK = { text: c.text, secondary: c.textSecondary, muted: c.textMuted, danger: c.danger, warning: c.warning, success: c.success };
-const LIGHT = { text: l.text, secondary: l.textSecondary, muted: l.placeholder, danger: l.danger, warning: l.warning, success: l.success };
+// Read when drawn (not once at start-up): the light palette changes with light/dark mode.
+const lightTone = () => ({ text: l.text, secondary: l.textSecondary, muted: l.placeholder, danger: l.danger, warning: l.warning, success: l.success });
 
 function LocationTag({ stop, light }: { stop: Delivery; light: boolean }) {
-  const t = light ? LIGHT : DARK;
+  const t = light ? lightTone() : DARK;
   const { geocodeStatus: status, approximate } = stop.address;
   const [icon, color, text]: [McName, string, string] = status === 'not_found' ? ['map-marker-off', t.danger, 'Location not found']
     : approximate || status === 'approximate' ? ['map-marker-question', t.warning, 'Approximate location']

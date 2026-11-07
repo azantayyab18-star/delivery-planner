@@ -77,15 +77,16 @@ export function LightDivider({ text = 'or' }: { text?: string }) {
 }
 
 export type LightTone = 'blue' | 'green' | 'amber' | 'red' | 'muted';
-const TONE: Record<LightTone, { fg: string; bg: string }> = {
+// A function, not a constant: the palette changes with light/dark mode.
+const toneColors = (): Record<LightTone, { fg: string; bg: string }> => ({
   blue: { fg: c.link, bg: c.linkBg },
   green: { fg: c.success, bg: c.successBg },
   amber: { fg: c.warning, bg: c.warningBg },
   red: { fg: c.danger, bg: c.dangerBg },
   muted: { fg: c.textLabel, bg: c.soft },
-};
+});
 export function LightPill({ text, tone = 'muted' }: { text: string; tone?: LightTone }) {
-  const t = TONE[tone];
+  const t = toneColors()[tone];
   return (
     <View style={[s.pill, { backgroundColor: t.bg }]}>
       <Text style={{ color: t.fg, fontSize: 14, fontWeight: '500' }} numberOfLines={1}>{text}</Text>

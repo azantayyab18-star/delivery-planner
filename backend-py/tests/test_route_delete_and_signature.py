@@ -4,7 +4,7 @@ from __future__ import annotations
 from app.db import db
 
 from .test_api import rider
-from .test_v2 import JPEG, TODAY, key, route_with_stops
+from .test_v2 import JPEG, TODAY, item, key, route_with_stops
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 64
 
@@ -71,3 +71,36 @@ async def test_a_signature_is_optional_proof_next_to_the_photo(client):
     jpeg = await client.post("/api/v2/uploads/proof", params={"stopId": stop, "kind": "signature"}, headers={**auth, **key()},
                              files={"photo": ("s.jpg", JPEG, "image/jpeg")})
     assert jpeg.status_code == 415
+
+
+async def test_a_route_on_hold_lets_another_start_and_resumes_later(client):
+    """One route underway at a time: hold it, start another, finish or hold that, then resume the first."""
+    _, auth = await rider(client, "hold@example.com")
+    first = await route_with_stops(client, auth, 3)
+    stop = await deliver_first(client, auth, first)
+
+    # Underway: a second route for today cannot be planned until the first is on hold.
+    created = (await client.post("/api/v2/deliveries/batch", headers=auth, json={"items": [item(i) for i in range(10, 12)]})).json()["data"]["stops"]
+    blocked = await client.post("/api/v1/routes/build", headers=auth, json={"deliveryIds": [s["id"] for s in created], "date": TODAY})
+    assert blocked.status_code == 409 and blocked.json()["error"]["code"] == "ROUTE_ACTIVE"
+
+    held = await client.post(f"/api/v1/routes/{first['id']}/pause", headers=auth)
+    assert held.status_code == 200 and held.json()["data"]["status"] == "paused"
+    # Its stops stay put: not left over, not taken by a new route, not cleared.
+    assert (await client.get("/api/v1/routes/leftover", headers=auth, params={"date": TODAY})).json()["data"]["total"] == 0
+    second = await client.post("/api/v1/routes/build", headers=auth, json={"deliveryIds": [s["id"] for s in created], "date": TODAY})
+    assert second.status_code == 201, second.text
+    second = second.json()["data"]
+    assert (await client.post(f"/api/v1/routes/{second['id']}/start", headers=auth)).status_code == 200
+    # Still one route underway at a time.
+    again = await client.post(f"/api/v1/routes/{first['id']}/start", headers=auth)
+    assert again.status_code == 409 and again.json()["error"]["code"] == "ROUTE_ACTIVE"
+
+    assert (await client.post(f"/api/v1/routes/{second['id']}/pause", headers=auth)).status_code == 200
+    resumed = (await client.post(f"/api/v1/routes/{first['id']}/start", headers=auth)).json()["data"]
+    # Resumed, not restarted: the original start time stays.
+    assert resumed["status"] == "active" and resumed["startedAt"] == held.json()["data"]["startedAt"] is not None
+    done = next(s for s in resumed["stops"] if s["delivery"]["id"] == stop)
+    assert done["delivery"]["status"] == "delivered" and resumed["progress"]["done"] == 1
+    # Only a route underway can be put on hold.
+    assert (await client.post(f"/api/v1/routes/{second['id']}/pause", headers=auth)).status_code == 409

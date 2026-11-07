@@ -242,7 +242,7 @@ async def clear_open(actor: dict) -> dict:
         await lock_rider(tx, actor["id"])
         planned = await tx.route.find_many(where={"riderId": actor["id"], "status": "planned"})
         rows = await tx.delivery.find_many(where={"riderId": actor["id"], "status": "pending",
-                                                  "OR": [{"routeId": None}, {"route": {"is": {"status": {"not": "active"}}}}]})
+                                                  "OR": [{"routeId": None}, {"route": {"is": {"status": {"in": ["planned", "completed"]}}}}]})
         await archive_deleted(tx, rows, "clear_open")
         deleted = await tx.delivery.delete_many(where={"id": {"in": [d.id for d in rows]}}) if rows else 0
         if planned:

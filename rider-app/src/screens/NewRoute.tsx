@@ -1,12 +1,12 @@
 import { useCallback, useState } from 'react';
-import { Pressable, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { KeyboardAwareScrollView, useRevealOnFocus } from '../components/KeyboardAware';
 import DatePicker from '../components/DatePicker';
 import { Screen } from '../components/Kit';
 import { LightButton, LightError } from '../components/LightKit';
-import { ApiRequestError } from '../lib/api';
+import { ApiRequestError, post } from '../lib/api';
 import { dayKey, defaultRouteName, fromDayKey, todayKey } from '../lib/format';
 import { rememberRouteName } from '../lib/routeNames';
 import { fetchCurrentRoute } from '../lib/v2api';
@@ -16,6 +16,7 @@ import { light as c, lightRadius as lr, themed, statusBarStyle } from '../lib/th
 import { useNav } from '../lib/nav';
 import { useHome } from '../lib/queries';
 import { hasUsablePlan } from '../lib/billing';
+import { queryClient } from '../lib/query';
 
 // Step 1 of Add route: pick the route's day (today, tomorrow or any later date) and name it. `initialDate` comes from
 // Home when the rider adds a route for the day they are looking at. A day can have several routes: a new route never
@@ -34,6 +35,23 @@ export default function NewRoute({ initialDate }: { initialDate?: string }) {
       .then((route) => setActive(route?.status === 'active' ? route : null))
       .catch((err) => setError(err instanceof ApiRequestError ? err.message : 'Could not check your current route'));
   }, []));
+
+  // Hold the route underway so a new one can be planned and started now; it can be resumed later.
+  const [holding, setHolding] = useState(false);
+  const holdActive = async () => {
+    if (!active) return;
+    setHolding(true);
+    try {
+      await post(`/routes/${active.id}/pause`);
+      setActive(null);
+      setError('');
+      await queryClient.invalidateQueries({ queryKey: ['home'] });
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : 'Could not put the route on hold');
+    } finally {
+      setHolding(false);
+    }
+  };
 
   const today = dayKey(0);
   const tomorrow = dayKey(1);
@@ -95,7 +113,11 @@ export default function NewRoute({ initialDate }: { initialDate?: string }) {
             <MaterialCommunityIcons name="progress-clock" size={20} color={c.warning} />
             <View style={{ flex: 1 }}>
               <Text style={{ color: c.text, fontWeight: '600', fontSize: 15 }}>{active.name || 'A route'} is still underway</Text>
-              <Text style={{ color: c.textSecondary, fontSize: 14, marginTop: 2, lineHeight: 20 }}>You can add stops now and plan them once it is finished, or pick Tomorrow.</Text>
+              <Text style={{ color: c.textSecondary, fontSize: 14, marginTop: 2, lineHeight: 20 }}>Put it on hold to start a new route now (resume it later), add stops and plan them once it is finished, or pick Tomorrow.</Text>
+              <Pressable onPress={() => void holdActive()} disabled={holding} hitSlop={6} style={({ pressed }) => [s.holdBtn, pressed && { opacity: 0.8 }]} accessibilityRole="button">
+                {holding ? <ActivityIndicator size="small" color={c.text} /> : <Ionicons name="pause" size={16} color={c.text} />}
+                <Text style={{ color: c.text, fontSize: 15, fontWeight: '600' }}>Put {active.name || 'it'} on hold</Text>
+              </Pressable>
             </View>
           </View>
         ) : null}
@@ -156,6 +178,7 @@ const s = themed(() => ({
   tileDay: { fontSize: 24, fontWeight: '800', marginTop: 2 },
   tileWeek: { fontSize: 13, marginTop: 2 },
   chosen: { color: c.textSecondary, fontSize: 15, marginTop: 14 },
+  holdBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start', marginTop: 10, paddingHorizontal: 14, height: 36, borderRadius: 18, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface },
   notice: { flexDirection: 'row', gap: 10, padding: 14, borderRadius: lr.field, backgroundColor: c.warningBg, marginTop: 16 },
   field: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 52, paddingHorizontal: 16, borderRadius: lr.field, backgroundColor: c.soft },
   input: { flex: 1, color: c.text, fontSize: 17, paddingVertical: 12 },

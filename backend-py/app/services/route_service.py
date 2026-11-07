@@ -335,7 +335,7 @@ async def _lock_route(tx: Any, actor: dict, route_id: str, stop_ids: list[str], 
 async def retry_geocoding(actor: dict, route_id: str) -> dict:
     _require_rider(actor)
     route = await _find_mine(actor, route_id)
-    if route.status not in ("planned", "active"):
+    if route.status not in ("planned", "active", "paused"):
         raise conflict("Only planned or active routes can retry address lookup", "INVALID_STATE")
     stop_rows = await db.routestop.find_many(where={"routeId": route.id})
     deliveries = await db.delivery.find_many(where={"riderId": actor["id"], "routeId": route.id, "id": {"in": [s.deliveryId for s in stop_rows]}},
@@ -389,7 +389,7 @@ async def optimize(actor: dict, route_id: str, origin: dict | None = None) -> di
     belong to a route that is still being added. Finished stops keep their place."""
     _require_rider(actor)
     route = await _find_mine(actor, route_id)
-    if route.status not in ("planned", "active"):
+    if route.status not in ("planned", "active", "paused"):
         raise conflict("Only planned or active routes can be optimised", "INVALID_STATE")
     stop_rows = sorted(await db.routestop.find_many(where={"routeId": route.id}), key=lambda s: s.order)
     on_route = await db.delivery.find_many(where={"riderId": actor["id"], "routeId": route.id, "id": {"in": [s.deliveryId for s in stop_rows]}})
@@ -411,7 +411,7 @@ async def optimize(actor: dict, route_id: str, origin: dict | None = None) -> di
     if origin:
         data |= {"originLatitude": origin["latitude"], "originLongitude": origin["longitude"]}
     async with transaction() as tx:
-        await _lock_route(tx, actor, route.id, list(by_id), ("planned", "active"))
+        await _lock_route(tx, actor, route.id, list(by_id), ("planned", "active", "paused"))
         await tx.routestop.delete_many(where={"routeId": route.id})
         await tx.routestop.create_many(data=[{"routeId": route.id, **s} for s in finished_rows + stops])
         await _assign_stops(tx, route.id, actor["id"], finished_rows + stops)
@@ -506,14 +506,15 @@ async def start(actor: dict, route_id: str) -> dict:
         await lock_rider(tx, actor["id"])
         route = await _find_mine(actor, route_id, tx)
         if route.status != "active":
-            if route.status != "planned":
+            if route.status not in ("planned", "paused"):
                 raise conflict("This route is already completed", "INVALID_STATE")
-            if not await tx.delivery.count(where={"routeId": route.id, "status": "pending"}):
+            # A route on hold resumes where it was (an arrived stop stays arrived).
+            if not await tx.delivery.count(where={"routeId": route.id, "status": {"in": list(OPEN)}}):
                 raise conflict("This route has no pending deliveries. Build a new one.", "ROUTE_STALE")
             if await tx.route.find_first(where={"riderId": actor["id"], "status": "active"}):
-                raise conflict("You already have an active route", "ROUTE_ACTIVE")
+                raise conflict("You already have an active route. Put it on hold or finish it first.", "ROUTE_ACTIVE")
             try:
-                route = await tx.route.update(where={"id": route.id}, data={"status": "active", "startedAt": now()})
+                route = await tx.route.update(where={"id": route.id}, data={"status": "active", "startedAt": route.startedAt or now()})
             except UniqueViolationError:
                 raise conflict("You already have an active route", "ROUTE_ACTIVE") from None
     return await serialize_route(route)
@@ -544,7 +545,8 @@ async def find_current(actor: dict, date: str | None = None) -> Any:
 def _left_over_where(actor: dict, date: str) -> dict:
     """Open stops dated before `date` that are not already on a route for `date` or later."""
     return {"riderId": actor["id"], "status": {"in": list(OPEN)}, "serviceDate": {"lt": date},
-            "OR": [{"routeId": None}, {"route": {"is": {"serviceDate": {"lt": date}}}}]}
+            # A route on hold keeps its stops (it is resumed, not carried over).
+            "OR": [{"routeId": None}, {"route": {"is": {"serviceDate": {"lt": date}, "status": {"not": "paused"}}}}]}
 
 
 async def left_over(actor: dict, date: str) -> dict:
@@ -553,6 +555,19 @@ async def left_over(actor: dict, date: str) -> dict:
     rows = await db.delivery.group_by(by=["serviceDate"], where=_left_over_where(actor, date), count=True)
     days = {row["serviceDate"]: row["_count"]["_all"] for row in rows}
     return {"total": sum(days.values()), "days": [{"date": k, "count": days[k]} for k in sorted(days, reverse=True)]}
+
+
+async def pause(actor: dict, route_id: str) -> dict:
+    """Puts the active route on hold: it keeps its stops, order and progress, and another route can be started. Resumed
+    with /start (only while no other route is active, so one route is underway at a time)."""
+    _require_rider(actor)
+    async with transaction() as tx:
+        await lock_rider(tx, actor["id"])
+        route = await _find_mine(actor, route_id, tx)
+        if route.status != "active":
+            raise conflict("Only the route underway can be put on hold", "INVALID_STATE")
+        route = await tx.route.update(where={"id": route.id}, data={"status": "paused"})
+    return await serialize_route(route)
 
 
 async def delete(actor: dict, route_id: str, *, keep_stops: bool) -> dict:
