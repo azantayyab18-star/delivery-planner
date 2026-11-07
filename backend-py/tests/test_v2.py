@@ -294,13 +294,25 @@ async def test_home_is_one_request_with_counts_only(client):
     assert set(home) == {"rider", "date", "today", "routes", "unplanned", "leftOver", "plan"}
     assert home["plan"] == {"status": "trialing"}  # the same status /subscriptions/me reports
     assert home["today"] == {"total": 4, "delivered": 1, "failed": 0, "progressPercent": 25}
-    assert home["routes"] == [{"id": built["id"], "name": None, "status": "active", "serviceDate": TODAY, "stops": 3}]
+    assert home["routes"] == [{"id": built["id"], "name": None, "status": "active", "serviceDate": TODAY, "stops": 3, "done": 1, "delivered": 1}]
     assert home["unplanned"] == [{"date": TODAY, "count": 1}, {"date": tomorrow, "count": 1}]
     assert home["leftOver"] == {"total": 0, "days": []}
+
 
     # The same numbers v1's four Home requests give.
     dash = (await client.get("/api/v1/rider/dashboard", headers=auth, params={"date": TODAY})).json()["data"]
     assert (dash["total"], dash["delivered"], dash["failed"], dash["progressPercent"]) == (4, 1, 0, 25)
+
+    # Finished today: still on Home, with what was done. On hold: on Home whatever its day.
+    for stop in built["stops"][1:]:
+        await client.post(f"/api/v2/stops/{stop['delivery']['id']}/events", headers={**auth, **key()}, json={"type": "deliver"})
+    routes = (await client.get("/api/v2/rider/home", headers=auth, params={"date": TODAY})).json()["data"]["routes"]
+    assert [(r["id"], r["status"], r["done"], r["stops"]) for r in routes] == [(built["id"], "completed", 3, 3)]
+    held = await route_with_stops(client, auth, 2)
+    await client.post(f"/api/v1/routes/{held['id']}/pause", headers=auth)
+    later = (datetime.now(UTC) + timedelta(days=2)).strftime("%Y-%m-%d")
+    routes = (await client.get("/api/v2/rider/home", headers=auth, params={"date": later})).json()["data"]["routes"]
+    assert [(r["id"], r["status"]) for r in routes] == [(held["id"], "paused")]
 
 
 # ---------------------------------------------------------------- v1 regression (P2.9)

@@ -206,15 +206,19 @@ async def route_summary(route_id: str | None) -> dict | None:
 # ---------- Home ----------
 
 async def home(actor: dict, date: str) -> dict:
-    """Everything the Home screen shows, in one response: today's totals, open routes from today on (with stop counts),
+    """Everything the Home screen shows, in one response: today's totals, its routes (open ones from today on, routes on
+    hold from any day, and today's finished ones, with stop counts),
     stops added but not planned yet (per day), open stops left from earlier days, and the plan status."""
     _require_rider(actor)
     rider_id = actor["id"]
     today_where = {"riderId": rider_id, "OR": [{"serviceDate": date}, {"status": {"in": list(OPEN)}, "serviceDate": {"lte": date}}]}
     status_rows, routes, unplanned_rows, left_rows, subscription = await asyncio.gather(
         db.delivery.group_by(by=["status"], where=today_where, count=True),
-        db.route.find_many(where={"riderId": rider_id, "status": {"in": ["planned", "active", "paused"]}, "serviceDate": {"gte": date}},
-                           order=[{"serviceDate": "asc"}, {"createdAt": "asc"}, {"id": "asc"}], take=100),
+        db.route.find_many(where={"riderId": rider_id, "OR": [
+            {"status": {"in": ["planned", "active"]}, "serviceDate": {"gte": date}},
+            {"status": "paused"},  # held on an earlier day too: it waits to be resumed
+            {"status": "completed", "serviceDate": date},  # finished today: still shown, with what was done
+        ]}, order=[{"serviceDate": "asc"}, {"createdAt": "asc"}, {"id": "asc"}], take=100),
         db.delivery.group_by(by=["serviceDate"], where={"riderId": rider_id, "status": "pending", "routeId": None, "serviceDate": {"gte": date}},
                              count=True),
         db.delivery.group_by(by=["serviceDate"], where=_left_over_where(actor, date), count=True),
@@ -230,7 +234,9 @@ async def home(actor: dict, date: str) -> dict:
         "today": {"total": today["total"], "delivered": today["delivered"], "failed": today["failed"],
                   "progressPercent": js_round(finished / today["total"] * 100) if today["total"] else 0},
         "routes": [{"id": r.id, "name": r.name or None, "status": str(r.status), "serviceDate": r.serviceDate,
-                    "stops": sum(counts.get(r.id, {}).values())} for r in routes],
+                    "stops": sum(counts.get(r.id, {}).values()),
+                    "done": counts.get(r.id, {}).get("delivered", 0) + counts.get(r.id, {}).get("failed", 0),
+                    "delivered": counts.get(r.id, {}).get("delivered", 0)} for r in routes],
         "unplanned": sorted(({"date": r["serviceDate"], "count": r["_count"]["_all"]} for r in unplanned_rows), key=lambda d: d["date"]),
         "leftOver": {"total": sum(left.values()), "days": [{"date": k, "count": left[k]} for k in sorted(left, reverse=True)]},
         # Home's "Free trial" / "Upgrade" chip shows for these statuses: no separate /subscriptions/me request on Home.

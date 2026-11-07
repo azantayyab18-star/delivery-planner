@@ -18,7 +18,8 @@ export type V2Route = V2RouteSummary & Pick<Route, 'name' | 'serviceDate' | 'pre
 export type V2Home = {
   rider: { fullName: string }; date: string;
   today: { total: number; delivered: number; failed: number; progressPercent: number };
-  routes: { id: string; name: string | null; status: Route['status']; serviceDate: string; stops: number }[];
+  /** done: delivered + failed. Missing from older servers. */
+  routes: { id: string; name: string | null; status: Route['status']; serviceDate: string; stops: number; done?: number; delivered?: number }[];
   unplanned: { date: string; count: number }[];
   leftOver: { total: number; days: { date: string; count: number }[] };
   /** The subscription status, as /subscriptions/me reports it ("inactive" without one). */

@@ -119,7 +119,7 @@ export default function Dashboard() {
 
   // The next day with work on it: its first route, and the stops added for it that were never planned.
   const nextDay = [...routes.map((route) => route.serviceDate), ...unplanned.map((d) => d.date)].filter((key) => key > today).sort()[0];
-  const nextRoute = nextDay ? routes.find((route) => route.serviceDate === nextDay && route.status !== 'completed') : undefined;
+  const nextRoute = nextDay ? routes.find((route) => route.serviceDate === nextDay && route.status === 'planned') : undefined;
   const nextLoose = nextDay ? unplanned.find((d) => d.date === nextDay)?.count ?? 0 : 0;
 
   // Stops added but never confirmed: back to Add stops for that day (it lists them), to add more or review and plan.
@@ -128,11 +128,21 @@ export default function Dashboard() {
     navigate('AddStops', { name, date });
   };
 
-  // Today's routes and unplanned stops first, then the next day's: the same card for each.
-  const cards: { key: string; date: string; title: string; meta: string; loose?: boolean; onPress: () => void }[] = [
-    // Finished routes leave Home (they are in History); they still count in "delivered today".
-    ...todayRoutes.filter((route) => route.status !== 'completed').map((route) => ({ key: route.id, date: today, title: route.name || 'Route', meta: routeMeta(route), onPress: () => navigate('RoutePreview', { routeId: route.id }) })),
+  // Routes first (underway, on hold from any day, planned), then today's unplanned stops, today's finished routes, then
+  // the next day's: the same card for each.
+  const routeCard = (route: HomeRoute) => ({
+    key: route.id, date: route.serviceDate, title: route.name || 'Route', meta: routeMeta(route), kind: route.status,
+    // A finished route opens its summary; the others their stops.
+    onPress: () => (route.status === 'completed' ? navigate('RouteDetail', { id: route.id }) : navigate('RoutePreview', { routeId: route.id })),
+  });
+  const held = routes.filter((route) => route.status === 'paused');
+  const cards: { key: string; date: string; title: string; meta: string; kind?: HomeRoute['status']; loose?: boolean; onPress: () => void }[] = [
+    ...todayRoutes.filter((route) => route.status === 'active').map(routeCard),
+    ...held.map(routeCard),
+    ...todayRoutes.filter((route) => route.status === 'planned').map(routeCard),
     ...(todayLoose ? [{ key: 'loose-today', date: today, title: stopCount(todayLoose, 'added'), meta: 'Not finished. Tap to keep adding stops', loose: true, onPress: () => void continueAdding(today) }] : []),
+    // Finished today: still here with their names and results (older ones are in History).
+    ...todayRoutes.filter((route) => route.status === 'completed').map(routeCard),
     ...(nextDay && nextRoute ? [{ key: nextRoute.id, date: nextDay, title: nextRoute.name || 'Route', meta: routeMeta(nextRoute), onPress: () => navigate('RoutePreview', { routeId: nextRoute.id }) }] : []),
     ...(nextDay && nextLoose ? [{ key: 'loose-next', date: nextDay, title: stopCount(nextLoose, 'added'), meta: 'Not finished. Tap to keep adding stops', loose: true, onPress: () => void continueAdding(nextDay) }] : []),
   ];
@@ -188,8 +198,9 @@ export default function Dashboard() {
         <View style={{ gap: 10, marginTop: empty ? 'auto' : 28, paddingTop: empty ? 28 : 0 }}>
           {cards.map((card) => (
             <Pressable key={card.key} onPress={card.onPress} style={({ pressed }) => [s.nextCard, card.loose && s.unfinished, pressed && { opacity: 0.85 }]}>
-              <View style={[s.nextIcon, card.loose && { backgroundColor: c.surface }]}>
-                <Ionicons name={card.loose ? 'create-outline' : 'calendar-outline'} size={20} color={card.loose ? c.danger : c.link} />
+              <View style={[s.nextIcon, card.loose && { backgroundColor: c.surface }, card.kind === 'completed' && { backgroundColor: c.successBg }, card.kind === 'paused' && { backgroundColor: c.warningBg }]}>
+                <Ionicons name={card.loose ? 'create-outline' : CARD_ICON[card.kind ?? 'planned']} size={20}
+                  color={card.loose ? c.danger : card.kind === 'completed' ? c.success : card.kind === 'paused' ? c.warning : c.link} />
               </View>
               <View style={{ flex: 1, marginLeft: 14, marginRight: 8 }}>
                 <Text style={s.nextTitle} numberOfLines={1}>{dayLabel(card.date)} · {card.title}</Text>
@@ -212,12 +223,18 @@ export default function Dashboard() {
 
 const stopCount = (n: number, suffix: string) => `${n} stop${n === 1 ? '' : 's'} ${suffix}`;
 
-/** "7 stops · In progress" for a running route, "9 stops ready" for a planned one (finished ones aren't on Home). */
-const routeMeta = (route: HomeData['routes'][number]) => {
-  const stops = route.progress.total;
-  if (route.status === 'active') return stopCount(stops, '· In progress');
-  if (route.status === 'paused') return stopCount(stops, '· On hold');
-  return stopCount(stops, 'ready');
+type HomeRoute = HomeData['routes'][number];
+const CARD_ICON: Record<HomeRoute['status'], 'navigate-outline' | 'pause-circle-outline' | 'checkmark-circle' | 'calendar-outline'> = {
+  active: 'navigate-outline', paused: 'pause-circle-outline', completed: 'checkmark-circle', planned: 'calendar-outline',
+};
+
+/** "In progress · 3 of 7 done", "On hold · 3 of 7 done", "Completed · 7 of 7 delivered", "9 stops ready". */
+const routeMeta = (route: HomeRoute) => {
+  const { total, done } = route.progress;
+  if (route.status === 'active') return `In progress · ${done} of ${total} done`;
+  if (route.status === 'paused') return `On hold · ${done} of ${total} done`;
+  if (route.status === 'completed') return `Completed · ${route.delivered} of ${total} delivered`;
+  return stopCount(total, 'ready');
 };
 
 /** Grey placeholders shaped like Home (count, progress, button, route rows), gently pulsing while it loads. */

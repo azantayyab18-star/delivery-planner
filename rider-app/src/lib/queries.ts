@@ -46,7 +46,7 @@ export const errorText = (err: unknown, fallback: string) =>
 /** What Home shows. `unplanned`: stops added but not planned into a route yet, counted per day. */
 export type HomeData = {
   dashboard: Pick<Dashboard, 'rider' | 'date' | 'total' | 'delivered' | 'failed' | 'progressPercent'>;
-  routes: Pick<RouteListItem, 'id' | 'name' | 'status' | 'serviceDate' | 'progress'>[];
+  routes: (Pick<RouteListItem, 'id' | 'name' | 'status' | 'serviceDate' | 'progress'> & { delivered: number })[];
   unplanned: { date: string; count: number }[];
   leftOver: LeftOver;
   /** For the "Free trial" / "Upgrade" chip. */
@@ -59,7 +59,8 @@ async function fetchHome(date: string): Promise<HomeData> {
   return {
     dashboard: { rider: { id: '', fullName: home.rider.fullName }, date: home.date, ...home.today },
     // Home reads a route's stop count (progress.total) and status; finished routes are not listed any more.
-    routes: home.routes.map((r) => ({ id: r.id, name: r.name, status: r.status, serviceDate: r.serviceDate, progress: { total: r.stops, done: 0, remaining: r.stops } })),
+    routes: home.routes.map((r) => ({ id: r.id, name: r.name, status: r.status, serviceDate: r.serviceDate, delivered: r.delivered ?? 0,
+      progress: { total: r.stops, done: r.done ?? 0, remaining: r.stops - (r.done ?? 0) } })),
     unplanned: home.unplanned,
     leftOver: home.leftOver,
     planStatus: home.plan.status,
