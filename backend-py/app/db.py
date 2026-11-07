@@ -1,16 +1,42 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 from datetime import timedelta
 from typing import Any
 
 from prisma import Json, Prisma
 
+from .logger import log
+
 db = Prisma()
 
 
+# How long start-up waits for the database (Neon can take a few seconds to wake up) before giving up with a clear error,
+# so a stuck connection fails the deploy in minutes instead of Render's 15-minute port timeout.
+CONNECT_ATTEMPTS = 4
+CONNECT_TIMEOUT_S = 30
+
+
 async def connect() -> None:
-    if not db.is_connected():
-        await db.connect()
+    """Connects with a time limit per attempt and a few retries, logging each step (start-up was silent before)."""
+    if db.is_connected():
+        return
+    for attempt in range(1, CONNECT_ATTEMPTS + 1):
+        started = time.monotonic()
+        log(logging.INFO, "Connecting to the database", attempt=attempt)
+        try:
+            await asyncio.wait_for(db.connect(), timeout=CONNECT_TIMEOUT_S)
+            log(logging.INFO, "Database connected", seconds=round(time.monotonic() - started, 1))
+            return
+        except Exception as error:
+            log(logging.WARNING, "Database connection failed", attempt=attempt, seconds=round(time.monotonic() - started, 1), error=repr(error)[:300])
+            if db.is_connected():
+                await db.disconnect()
+            if attempt == CONNECT_ATTEMPTS:
+                raise
+            await asyncio.sleep(5 * attempt)
 
 
 async def disconnect() -> None:

@@ -43,7 +43,8 @@ def create_app(*, run_jobs: bool = True) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
         await connect()
-        await ensure_default_plans()
+        log(logging.INFO, "Checking the subscription plans")
+        await asyncio.wait_for(ensure_default_plans(), timeout=60)
         log(logging.INFO, f"Delivery Planner API ready ({env.NODE_ENV})")
         # Request counts and latencies per minute for the worker's alerts (P7.6).
         stop_metrics = asyncio.Event()
