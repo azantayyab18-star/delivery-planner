@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useState } from 'react';
-import { Alert, Platform, Pressable, RefreshControl, SectionList, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, RefreshControl, SectionList, Text, View } from 'react-native';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useFocusEffect } from '../lib/useFocusEffect';
 import { del, get, ApiRequestError } from '../lib/api';
-import type { Route } from '../lib/types';
+import type { RouteListItem } from '../lib/types';
 import { dayKey, fromDayKey } from '../lib/format';
 import { Screen } from '../components/Kit';
 import { LightError } from '../components/LightKit';
@@ -26,23 +26,50 @@ const dayHeading = (key: string) => {
   return fromDayKey(key).toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
 };
 
+/** A finished route as GET /v2/routes lists it: counts only, no stops. */
+type HistoryRoute = Pick<RouteListItem, 'id' | 'name' | 'serviceDate' | 'distanceKm' | 'progress' | 'summary'>;
+const PAGE = 50;
+
 /** History (design_pref "History"): finished routes by day, newest first. Tapping one opens its summary. */
 export default function History() {
   const { navigate } = useNav();
-  const [routes, setRoutes] = useState<Route[] | null>(null);
+  // Finished routes, newest first, a page at a time: the next page loads when the list reaches its end, so every
+  // finished route is in History (not only the latest 30).
+  const [routes, setRoutes] = useState<HistoryRoute[] | null>(null);
+  const [next, setNext] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [filter, setFilter] = useState<Filter>('all');
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    try { setRoutes((await get<Route[]>('/routes')).data); setError(''); }
+    try {
+      const page = (await get<{ routes: HistoryRoute[]; next: string | null }>('/v2/routes', { limit: PAGE })).data;
+      setRoutes(page.routes);
+      setNext(page.next);
+      setError('');
+    }
     catch (err) { setError(err instanceof ApiRequestError ? err.message : 'Could not load history'); setRoutes((r) => r ?? []); }
   }, []);
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
+  const loadMore = async () => {
+    if (!next || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const page = (await get<{ routes: HistoryRoute[]; next: string | null }>('/v2/routes', { limit: PAGE, before: next })).data;
+      setRoutes((have) => [...(have || []), ...page.routes.filter((r) => !(have || []).some((h) => h.id === r.id))]);
+      setNext(page.next);
+    } catch (err) {
+      setError(err instanceof ApiRequestError ? err.message : 'Could not load older routes');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const sections = useMemo(() => {
     const shown = (routes || []).filter((r) => filter === 'all' || (filter === 'failures' ? r.summary.failed > 0 : r.summary.failed === 0));
-    const byDay = new Map<string, Route[]>();
+    const byDay = new Map<string, HistoryRoute[]>();
     for (const r of shown) byDay.set(r.serviceDate, [...(byDay.get(r.serviceDate) || []), r]);
     return [...byDay.keys()].sort().reverse().map((key) => ({ key, title: dayHeading(key), data: byDay.get(key)! }));
   }, [routes, filter]);
@@ -73,6 +100,9 @@ export default function History() {
       <SectionList
         sections={sections}
         keyExtractor={(r) => r.id}
+        onEndReached={() => void loadMore()}
+        onEndReachedThreshold={0.5}
+        ListFooterComponent={loadingMore ? <ActivityIndicator color={c.ink} style={{ marginVertical: 20 }} /> : null}
         stickySectionHeadersEnabled={false}
         contentContainerStyle={{ paddingHorizontal: 24, paddingTop: 24, paddingBottom: 28 }}
         refreshControl={<RefreshControl tintColor={c.ink} colors={[c.ink]} refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
