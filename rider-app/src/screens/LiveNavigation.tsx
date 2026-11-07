@@ -82,7 +82,8 @@ export default function LiveNavigation({ stopId }: { stopId?: string }) {
   const { denied } = gps;
   // Development only: "Simulate drive" moves the rider along the road line (to test turns, voice and arrival at a desk).
   const [sim, setSim] = useState<{ path: Coordinates[]; meters: number } | null>(null);
-  const simAt = sim ? pointAlong(sim.path, sim.meters) : null;
+  // Worked out once per step (not on every render): the screen treats a new position object as the rider moving.
+  const simAt = useMemo(() => (sim ? pointAlong(sim.path, sim.meters) : null), [sim]);
   const position = simAt?.point ?? gps.position;
   const heading = simAt ? simAt.bearing : gps.heading;
   const [route, setRoute] = useState<Route | null>(null);
