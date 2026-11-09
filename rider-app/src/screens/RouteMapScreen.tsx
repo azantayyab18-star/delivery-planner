@@ -30,8 +30,15 @@ type Stop = Route['stops'][number];
 type StepKind = 'done' | 'failed' | 'current' | 'upcoming';
 type Leg = { km: number; min: number; road: boolean };
 
-// When the road line does not arrive, it is asked for again after these waits (then on the next visit).
-const LINE_RETRY_MS = [3000, 10000, 30000];
+// When the road line does not arrive, it is asked for again after these waits, then every minute while the screen is
+// open (Render's free server can take about a minute to wake up).
+const LINE_RETRY_MS = [3000, 10000, 20000, 30000];
+const LINE_RETRY_AFTER_MS = 60000;
+
+type RoadLine = { key: string; path: Coordinates[]; legs: (Leg | undefined)[]; km: number; min: number };
+// Road lines already fetched, by route and stop order: kept for the whole app session, so coming back to a route (also
+// after its screen was rebuilt) shows its line at once, with no request.
+const lineCache = new Map<string, RoadLine>();
 
 /** GET /v2/routes/{id}/geometry: the route's road line (encoded polyline) and each open stop's leg; path null without a router. */
 type RouteGeometry = { path: string | null; legs: { stopId: string; distanceKm: number; durationMin: number }[]; distanceKm: number | null; durationMin: number | null };
@@ -146,7 +153,7 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
   const loadError = routeQuery.error instanceof ApiRequestError ? routeQuery.error.message
     : routeQuery.error && !(routeQuery.error instanceof TypeError && route) ? 'Could not load the active route' : '';
   const error = actionError || loadError;
-  const [road, setRoad] = useState<{ key: string; path: Coordinates[]; legs: (Leg | undefined)[]; km: number; min: number } | null>(null);
+  const [road, setRoad] = useState<RoadLine | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [focus, setFocus] = useState<Coordinates | null>(null);
   const routeRequest = useRef(0);
@@ -205,7 +212,9 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
   const routeKey = route ? `${route.id}|${ordered.map((p) => p.stop.delivery.id).join(',')}` : '';
   // Asked again whenever there is no line for the current order: a few retries after a failed or empty answer (a weak
   // signal, the server restarting), and on every return to this screen. Never kept on dashed lines for good.
-  const haveLine = !!road && road.key === routeKey;
+  // Road data only counts while it matches the current order.
+  const roadNow = (road && road.key === routeKey ? road : lineCache.get(routeKey)) ?? null;
+  const haveLine = !!roadNow;
   const focused = useIsFocused();
   useEffect(() => {
     if (!route || !ordered.length || !focused || haveLine) return;
@@ -218,17 +227,20 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
           if (cancelled || request !== routeRequest.current) return;
           if (!data.path) throw new Error('No road line yet');
           const byStop = new Map(data.legs.map((l) => [l.stopId, l]));
-          setRoad({
+          const line: RoadLine = {
             key: routeKey,
             path: decodePolyline(data.path),
             legs: ordered.map((p) => { const l = byStop.get(p.stop.delivery.id); return l ? { km: l.distanceKm, min: l.durationMin, road: true } : undefined; }),
             km: data.distanceKm ?? 0,
             min: data.durationMin ?? 0,
-          });
+          };
+          lineCache.set(routeKey, line);
+          setRoad(line);
         })
-        .catch(() => {
-          // Straight-line estimates and a dashed line stay on screen meanwhile.
-          if (!cancelled && attempt < LINE_RETRY_MS.length) timer = setTimeout(() => fetchLine(attempt + 1), LINE_RETRY_MS[attempt]);
+        .catch((err) => {
+          // Straight-line estimates and a dashed line stay on screen meanwhile; asked again until the line arrives.
+          if (__DEV__) console.warn(`[route line] attempt ${attempt + 1} for ${route.id}: ${err instanceof Error ? err.message : String(err)}`);
+          if (!cancelled) timer = setTimeout(() => fetchLine(attempt + 1), LINE_RETRY_MS[attempt] ?? LINE_RETRY_AFTER_MS);
         });
     };
     fetchLine(0);
@@ -239,8 +251,6 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
 
   useEffect(() => () => { routeRequest.current = -1; }, []);
 
-  // Road data only counts while it matches the current order.
-  const roadNow = road && road.key === routeKey ? road : null;
   // Road legs from the live path when available; otherwise the route's own planned legs.
   const legs: Leg[] = ordered.map((p, i) => roadNow?.legs[i]
     ?? (p.stop.legDistanceKm > 0 ? { km: p.stop.legDistanceKm, min: p.stop.legDurationMin, road: route?.optimization === 'road' } : { km: kmBetween(i === 0 ? start ?? p.at : ordered[i - 1].at, p.at), min: 0, road: false }));
