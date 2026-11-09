@@ -176,12 +176,13 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
 
         {revealing ? null : path.length > 1 && navigation ? (
           // A darker edge under the line, so it stands out on any street colour.
-          [<Polyline key="edge" coordinates={path} strokeColor="#1E3A8A" strokeWidth={11} zIndex={1} />,
-            <Polyline key="line" coordinates={path} strokeColor={line} strokeWidth={7} zIndex={2} />]
+          [<Polyline key="nav-edge" coordinates={path} strokeColor="#1E3A8A" strokeWidth={11} zIndex={1} />,
+            <Polyline key="nav-line" coordinates={path} strokeColor={line} strokeWidth={7} zIndex={2} />]
         ) : path.length > 1 ? (
-          <Polyline coordinates={path} strokeColor={line} strokeWidth={5} />
+          // Its own key: a fresh native line, never the dotted one re-used (Android keeps a dash pattern once set).
+          <Polyline key="road" coordinates={path} strokeColor={line} strokeWidth={5} lineDashPattern={undefined} />
         ) : order.length > 1 || (framing && order.length) ? (
-          <Polyline coordinates={framing ? [framing, ...order] : order} strokeColor={line} strokeWidth={3} lineDashPattern={[10, 8]} />
+          <Polyline key="straight" coordinates={framing ? [framing, ...order] : order} strokeColor={line} strokeWidth={3} lineDashPattern={[10, 8]} />
         ) : null}
 
         {shown.map((st) => (
