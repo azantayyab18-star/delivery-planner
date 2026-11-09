@@ -239,7 +239,7 @@ export default function RouteMapScreen({ reveal = false, routeId }: { reveal?: b
         })
         .catch((err) => {
           // Straight-line estimates and a dashed line stay on screen meanwhile; asked again until the line arrives.
-          if (__DEV__) console.warn(`[route line] attempt ${attempt + 1} for ${route.id}: ${err instanceof Error ? err.message : String(err)}`);
+          if (__DEV__) console.warn(`[route line] attempt ${attempt + 1} for ${route.id}: ${err instanceof ApiRequestError ? `HTTP ${err.status} ${err.code} ` : ''}${err instanceof Error ? err.message : String(err)}`);
           if (!cancelled) timer = setTimeout(() => fetchLine(attempt + 1), LINE_RETRY_MS[attempt] ?? LINE_RETRY_AFTER_MS);
         });
     };

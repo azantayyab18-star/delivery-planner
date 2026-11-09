@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 import { secureDelete, secureGet, secureSet } from './secureStorage';
 import { cacheDirectory, copyAsync, deleteAsync, FileSystemUploadType, uploadAsync } from 'expo-file-system/legacy';
@@ -173,7 +174,10 @@ async function send(path: string, opts: Options): Promise<Response> {
   const repeatable = method === 'GET' || !!opts.idempotent || !!opts.headers?.['Idempotency-Key'];
   const timeoutMs = opts.timeoutMs ?? (method === 'GET' ? READ_TIMEOUT_MS : WRITE_TIMEOUT_MS);
   for (let attempt = 0; ; attempt += 1) {
-    const headers: Record<string, string> = { ...opts.headers };
+    // The app keeps its own copies (saved queries, ETags). Android's HTTP cache (OkHttp) must stay out of it: it can
+    // turn a request into a conditional one by itself, and the server's 304 (no body) then reads as a failed request.
+    // Phones only: a browser would send a CORS preflight for the extra header (the browser cache behaves anyway).
+    const headers: Record<string, string> = { ...(Platform.OS === 'web' ? {} : { 'Cache-Control': 'no-cache' }), ...opts.headers };
     if (tokens?.accessToken) headers.Authorization = `Bearer ${tokens.accessToken}`;
     let body: BodyInit | undefined;
     if (opts.isForm) body = opts.body as FormData;
