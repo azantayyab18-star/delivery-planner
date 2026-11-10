@@ -84,6 +84,8 @@ const kmApart = (a: Coordinates, b: Coordinates) => {
 
 export default function GoogleRouteMap({ stops: allStops, position, path, order, focus, style, pinning, onCenterChange, initialCenter, reveal, follow, heading, light, maxStops, navigation, onFollowChange, recenter }: GoogleRouteMapProps) {
   const camera = navigation ? NAV_CAMERA : FOLLOW_CAMERA;
+  // Which way the map itself is turned (degrees from north): the rider arrow is drawn relative to the screen.
+  const [mapBearing, setMapBearing] = useState(0);
   const stops = useMemo(() => visibleStops(allStops, maxStops), [allStops, maxStops]);
   const line = light ? l.link : c.primary;
   const map = useRef<MapView>(null);
@@ -133,6 +135,8 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
   useEffect(() => {
     if (!ready || !follow || !position || userMoved.current) return;
     map.current?.animateCamera({ center: position, ...camera, heading: heading ?? 0 }, { duration: 600 });
+    // The map now faces that way (recorded once the camera move is under way).
+    void Promise.resolve().then(() => setMapBearing(heading ?? 0));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, follow, position, heading]);
 
@@ -141,7 +145,10 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
     if (!ready || recenter == null) return;
     userMoved.current = false;
     onFollowChange?.(true);
-    if (position) map.current?.animateCamera({ center: position, ...camera, heading: heading ?? 0 }, { duration: 400 });
+    if (position) {
+      map.current?.animateCamera({ center: position, ...camera, heading: heading ?? 0 }, { duration: 400 });
+      void Promise.resolve().then(() => setMapBearing(heading ?? 0));
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recenter]);
 
@@ -164,6 +171,8 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
           if (details?.isGesture) {
             if (!userMoved.current) onFollowChange?.(false);
             userMoved.current = true;
+            // The rider may have turned the map: read its rotation for the arrow.
+            if (follow) map.current?.getCamera().then((cam) => setMapBearing(cam.heading ?? 0)).catch(() => {});
           }
           if (pinning) onCenterChange?.({ latitude: region.latitude, longitude: region.longitude });
         }}
@@ -189,7 +198,7 @@ export default function GoogleRouteMap({ stops: allStops, position, path, order,
           <StopMarker key={`${st.id}:${st.kind}:${st.label}`} latitude={st.latitude} longitude={st.longitude} title={st.title} kind={st.kind} label={st.label} light={!!light} />
         ))}
 
-        {position ? <PositionMarker latitude={position.latitude} longitude={position.longitude} heading={follow ? heading ?? null : null} /> : null}
+        {position ? <PositionMarker latitude={position.latitude} longitude={position.longitude} heading={follow && heading != null ? heading - mapBearing : null} /> : null}
       </MapView>
 
       {pinning ? (
@@ -241,8 +250,11 @@ const StopMarker = memo(function StopMarker({ latitude, longitude, title, kind, 
 });
 
 /**
- * The rider. While navigating with a known direction (`heading`, degrees from north): an arrow like a car satnav's,
- * lying flat on the map and turned the way the rider travels. Otherwise a blue dot.
+ * The rider. While navigating with a known direction: an arrow like a car satnav's, turned the way the rider travels.
+ * `heading` is relative to the SCREEN (direction of travel minus the map's own rotation): 0 = straight up, which is what
+ * it is while the map follows the rider. Not `flat` + map-relative rotation: on this map version (new architecture) a
+ * custom-view marker ignores `flat`, and the arrow then pointed wherever the real-world heading fell on a turned map.
+ * Otherwise a blue dot.
  */
 const PositionMarker = memo(function PositionMarker({ latitude, longitude, heading }: Coordinates & { heading: number | null }) {
   const arrow = heading != null;
@@ -251,7 +263,7 @@ const PositionMarker = memo(function PositionMarker({ latitude, longitude, headi
   const coordinate = useMemo(() => ({ latitude, longitude }), [latitude, longitude]);
   if (arrow) {
     return (
-      <Marker key="arrow" coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} flat rotation={heading} tracksViewChanges={track} zIndex={20} title="You are here">
+      <Marker key="arrow" coordinate={coordinate} anchor={{ x: 0.5, y: 0.5 }} rotation={((heading % 360) + 360) % 360} tracksViewChanges={track} zIndex={20} title="You are here">
         <View style={{ width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}>
           {/* A white edge under the blue arrow, so it reads on any map colour. */}
           <MaterialCommunityIcons name="navigation" size={40} color="#ffffff" style={{ position: 'absolute' }} />
