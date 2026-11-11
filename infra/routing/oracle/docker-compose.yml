@@ -37,6 +37,24 @@ services:
       - osrm-car
     restart: unless-stopped
 
+  # The API's database for real-world testing, on this server so queries take ~1 ms (Neon in Ohio was ~250 ms per
+  # query from here). No public port: only containers on this network reach it. Same major version as Neon (18), so a
+  # dump moves either way (scripts: ./move-db.sh). Nightly dumps: ./backup-db.sh (cron).
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: routify
+      POSTGRES_USER: routify
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+    volumes:
+      - pg_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U routify -d routify"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
   # The Routify API (backend-py/Dockerfile) and its worker. It reaches OSRM and VROOM directly on this network (no
   # login, no HTTPS hop); Caddy publishes it at https://<API_HOST>. Its settings are in api.env (never committed):
   # copy api.env.example. Deploy a new version from a PC with ./deploy-api.sh.
@@ -53,9 +71,14 @@ services:
     volumes:
       - api_uploads:/app/uploads
     depends_on:
-      - osrm
-      - osrm-car
-      - vroom
+      postgres:
+        condition: service_healthy
+      osrm:
+        condition: service_started
+      osrm-car:
+        condition: service_started
+      vroom:
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/ready', timeout=5)"]
       interval: 30s
@@ -87,6 +110,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  pg_data:
   api_uploads:
   caddy_data:
   caddy_config:
