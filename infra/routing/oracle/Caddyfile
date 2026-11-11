@@ -7,6 +7,16 @@
 # The HTTPS certificate is obtained and renewed by Caddy (Let's Encrypt / ZeroSSL); a contact email is optional and not
 # set here.
 
+# The Routify API for the app: https://<API_HOST> -> api:4000 (no basic auth; the API has its own sign-in).
+{$API_HOST} {
+	reverse_proxy api:4000
+	encode gzip
+	log {
+		output stdout
+		format console
+	}
+}
+
 {$ROUTING_HOST} {
 	basic_auth {
 		{$ROUTING_USER} {$ROUTING_PASSWORD_HASH}

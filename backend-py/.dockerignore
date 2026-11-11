@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+.venv
+.prisma-cache
+__pycache__
+*.pyc
+.pytest_cache
+uploads
+tests
+query-engine-*
+prisma-query-engine-*

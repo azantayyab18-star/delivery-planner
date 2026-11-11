@@ -3,3 +3,4 @@ data/
 .env
 bench/results/
 __pycache__/
+api.env

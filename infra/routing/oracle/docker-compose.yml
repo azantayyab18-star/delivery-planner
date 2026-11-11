@@ -37,6 +37,33 @@ services:
       - osrm-car
     restart: unless-stopped
 
+  # The Routify API (backend-py/Dockerfile) and its worker. It reaches OSRM and VROOM directly on this network (no
+  # login, no HTTPS hop); Caddy publishes it at https://<API_HOST>. Its settings are in api.env (never committed):
+  # copy api.env.example. Deploy a new version from a PC with ./deploy-api.sh.
+  api:
+    build: ../backend-py
+    image: routify-api:latest
+    env_file: ./api.env
+    environment:
+      PORT: "4000"
+      OSRM_URL: http://osrm:5000
+      OSRM_CAR_URL: http://osrm-car:5000
+      VROOM_URL: http://vroom:3000
+      STORAGE_DIR: /app/uploads
+    volumes:
+      - api_uploads:/app/uploads
+    depends_on:
+      - osrm
+      - osrm-car
+      - vroom
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/ready', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 3
+    restart: unless-stopped
+
   caddy:
     image: caddy:2.8.4
     # The only service with public ports: HTTPS (Let's Encrypt certificate for ROUTING_HOST) and 80 for the challenge.
@@ -47,6 +74,7 @@ services:
       ROUTING_HOST: ${ROUTING_HOST:?set ROUTING_HOST in .env}
       ROUTING_USER: ${ROUTING_USER:?set ROUTING_USER in .env}
       ROUTING_PASSWORD_HASH: ${ROUTING_PASSWORD_HASH:?set ROUTING_PASSWORD_HASH in .env}
+      API_HOST: ${API_HOST:?set API_HOST in .env}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -55,8 +83,10 @@ services:
       - osrm
       - osrm-car
       - vroom
+      - api
     restart: unless-stopped
 
 volumes:
+  api_uploads:
   caddy_data:
   caddy_config:
