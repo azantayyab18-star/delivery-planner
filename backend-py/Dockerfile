@@ -8,8 +8,9 @@
 FROM python:3.12-slim
 
 # openssl: Prisma picks its engine build by the OpenSSL version. ca-certificates: HTTPS to Neon, Google, Brevo.
+# libatomic1: the Node build the Prisma CLI downloads needs it.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && apt-get install -y --no-install-recommends openssl ca-certificates libatomic1 \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
